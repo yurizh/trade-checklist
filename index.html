@@ -97,6 +97,18 @@
   <div style="font-size:10px;color:var(--muted);margin-top:4px">Database ID: 24933910ce304b65a1f50b137d7392ae (auto)</div>
 </div>
 <div id="saveStatus" style="display:none;font-size:12px;padding:4px 0;margin-bottom:4px;"></div>
+<div class="flow">
+  <span style="margin-right:12px"><span class="lbl">Asset</span>
+    <button class="pill" onclick="pickTop('asset','BTC')" id="pill_asset_BTC">BTC</button>
+    <button class="pill" onclick="pickTop('asset','ETH')" id="pill_asset_ETH">ETH</button>
+    <button class="pill" onclick="pickTop('asset','SOL')" id="pill_asset_SOL">SOL</button>
+    <button class="pill" onclick="pickTop('asset','PEPE')" id="pill_asset_PEPE">PEPE</button>
+  </span>
+  <span><span class="lbl">Mode</span>
+    <button class="pill" onclick="pickTop('mode','Live')" id="pill_mode_Live">Live</button>
+    <button class="pill" onclick="pickTop('mode','Backtest')" id="pill_mode_Backtest">Backtest</button>
+  </span>
+</div>
 <div class="flow">HTF Context → Market State → OI → Funding → Entry → Trade&Risk │ Any ⛔ = NO TRADE</div>
  
 <div id="checklist"></div>
@@ -256,6 +268,27 @@ function pick(id, val) {
   render();
 }
  
+function pickTop(id, val) {
+  state[id] = state[id] === val ? undefined : val;
+  localStorage.setItem('tc_state', JSON.stringify(state));
+  // Update top pills styling
+  document.querySelectorAll(`[id^="pill_${id}_"]`).forEach(b => {
+    b.className = 'pill';
+  });
+  const el = document.getElementById(`pill_${id}_${val}`);
+  if (el && state[id] === val) el.className = 'pill sel';
+}
+ 
+function renderTopPills() {
+  ['asset','mode'].forEach(id => {
+    document.querySelectorAll(`[id^="pill_${id}_"]`).forEach(b => { b.className = 'pill'; });
+    if (state[id]) {
+      const el = document.getElementById(`pill_${id}_${state[id]}`);
+      if (el) el.className = 'pill sel';
+    }
+  });
+}
+ 
 function toggleDisp(id) {
   dispState[id] = !dispState[id];
   const all = Object.values(dispState).every(Boolean);
@@ -285,6 +318,7 @@ function resetAll() {
   localStorage.removeItem('tc_state');
   document.getElementById("notes").value = "";
   render();
+  renderTopPills();
 }
  
 function toggleSettings() {
@@ -334,15 +368,16 @@ async function saveToNotion() {
  
   const props = {};
   // Title
-  const asset = state.asset || state.direction || "Trade";
+  const asset = state.asset || "";
   const dir = state.direction || "";
   const dt = new Date().toISOString().slice(0,10);
   props["Trade"] = `${dt} ${asset} ${dir}`.trim();
   // Date
   props["date:Date:start"] = new Date().toISOString();
   props["date:Date:is_datetime"] = 1;
-  // Mode
-  props["Mode"] = "Live";
+  // Asset & Mode
+  if (state.asset) props["Asset"] = state.asset;
+  props["Mode"] = state.mode || "Live";
  
   // Map selects
   for (const [k, [prop, map]] of Object.entries(FIELD_MAP)) {
@@ -391,6 +426,7 @@ try {
 } catch(e) {}
  
 render();
+renderTopPills();
 </script>
 </body>
 </html>

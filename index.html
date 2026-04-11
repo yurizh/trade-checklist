@@ -79,9 +79,24 @@
   <div class="header-title">TRADE CHECKLIST</div>
   <div class="header-right">
     <span id="verdict"></span>
+    <button class="btn-reset" onclick="saveToNotion()" id="saveBtn" style="color:var(--green);border-color:var(--green)">💾 SAVE</button>
     <button class="btn-reset" onclick="resetAll()">RESET</button>
+    <button class="btn-reset" onclick="toggleSettings()">⚙️</button>
   </div>
 </div>
+<div id="settingsPanel" style="display:none;border:1px solid var(--border);border-radius:4px;padding:8px;margin-bottom:6px;font-size:12px;">
+  <div style="margin-bottom:4px;font-weight:700;font-size:11px;color:var(--muted)">NOTION SETTINGS</div>
+  <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap;">
+    <span class="lbl">Worker URL</span>
+    <input class="mini-input flex" id="cfg_worker" placeholder="https://your-worker.workers.dev" oninput="saveCfg()">
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+    <span class="lbl">Notion Token</span>
+    <input class="mini-input flex" id="cfg_token" type="password" placeholder="ntn_..." oninput="saveCfg()">
+  </div>
+  <div style="font-size:10px;color:var(--muted);margin-top:4px">Database ID: a6dcbc1e-4b04-4d33-b875-937129aa5670 (auto)</div>
+</div>
+<div id="saveStatus" style="display:none;font-size:12px;padding:4px 0;margin-bottom:4px;"></div>
 <div class="flow">HTF Context → Market State → OI → Funding → Entry → Trade&Risk │ Any ⛔ = NO TRADE</div>
  
 <div id="checklist"></div>
@@ -270,6 +285,101 @@ function resetAll() {
   localStorage.removeItem('tc_state');
   document.getElementById("notes").value = "";
   render();
+}
+ 
+function toggleSettings() {
+  const p = document.getElementById("settingsPanel");
+  p.style.display = p.style.display === "none" ? "block" : "none";
+  if (p.style.display === "block") {
+    document.getElementById("cfg_worker").value = localStorage.getItem("tc_worker") || "";
+    document.getElementById("cfg_token").value = localStorage.getItem("tc_token") || "";
+  }
+}
+function saveCfg() {
+  localStorage.setItem("tc_worker", document.getElementById("cfg_worker").value);
+  localStorage.setItem("tc_token", document.getElementById("cfg_token").value);
+}
+ 
+const FIELD_MAP = {
+  bias:["HTF Bias",{Bullish:"Bullish",Bearish:"Bearish",Balanced:"Balanced"}],
+  regime:["Day Regime",{"Trend 3/3":"Trend 3/3","Mod 2/3":"Moderate 2/3",Neutral:"Neutral"}],
+  state:["Market State",{Bullish:"Bullish",Bearish:"Bearish","L.Squeeze":"Long Squeeze","S.Squeeze⛔":"Short Squeeze","Flat⛔":"Flat"}],
+  oiconfirm:["OI Confirm",{Yes:"Yes","No⛔":"No"}],
+  fcheck:["Funding Check",{OK:"OK","Half Risk":"Half Risk","No Trade⛔":"No Trade"}],
+  disp:["Displacement",{"Pass✅":"Pass","Fail⛔":"Fail"}],
+  trigger:["Trigger",{BOS:"BOS","Liq.Sweep":"Liquidity Sweep"}],
+  confirm:["Confirmation",{Continuation:"Continuation",Acceptance:"Acceptance",None:"None"}],
+  smt:["SMT",{Yes:"Yes",No:"No","N/A":"N/A"}],
+  session:["Session",{Breakout:"Breakout",Sweep:"Sweep","Mid-Range⛔":"Mid-Range"}],
+  type:["Trade Type",{"A Reactive":"A Reactive","B Predictive":"B Predictive"}],
+  conviction:["Conviction",{"High 3/3+SMT":"High 3/3+SMT",Standard:"Standard"}],
+  direction:["Direction",{Long:"Long",Short:"Short"}],
+  corrcheck:["", null]
+};
+ 
+const DB_ID = "a6dcbc1e-4b04-4d33-b875-937129aa5670";
+ 
+function showStatus(msg, ok) {
+  const el = document.getElementById("saveStatus");
+  el.style.display = "block";
+  el.style.color = ok ? "var(--green)" : "var(--red)";
+  el.textContent = msg;
+  setTimeout(() => el.style.display = "none", 4000);
+}
+ 
+async function saveToNotion() {
+  const worker = localStorage.getItem("tc_worker");
+  const token = localStorage.getItem("tc_token");
+  if (!worker || !token) { toggleSettings(); showStatus("⚠️ Set Worker URL and Notion Token first", false); return; }
+ 
+  const props = {};
+  // Title
+  const asset = state.asset || state.direction || "Trade";
+  const dir = state.direction || "";
+  const dt = new Date().toISOString().slice(0,10);
+  props["Trade"] = `${dt} ${asset} ${dir}`.trim();
+  // Date
+  props["date:Date:start"] = new Date().toISOString();
+  props["date:Date:is_datetime"] = 1;
+  // Mode
+  props["Mode"] = "Live";
+ 
+  // Map selects
+  for (const [k, [prop, map]] of Object.entries(FIELD_MAP)) {
+    if (!prop || !state[k] || !map) continue;
+    const mapped = map[state[k]];
+    if (mapped) props[prop] = mapped;
+  }
+ 
+  // Numbers
+  const numMap = {risk:"Risk %", entry:"Entry Price", stop:"Stop Price", tp1:"TP1", tp2:"TP2", tp3:"TP3", funding:"Funding at Entry"};
+  for (const [k, prop] of Object.entries(numMap)) {
+    const v = localStorage.getItem("tc_"+k);
+    if (v && !isNaN(parseFloat(v))) props[prop] = parseFloat(v);
+  }
+  // RR as text
+  const rr = localStorage.getItem("tc_rr");
+  if (rr) props["RR Target"] = rr;
+  // Notes
+  const notes = document.getElementById("notes").value;
+  if (notes) props["Notes"] = notes;
+ 
+  showStatus("⏳ Saving...", true);
+  try {
+    const resp = await fetch(worker, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ token, database_id: DB_ID, properties: props })
+    });
+    const data = await resp.json();
+    if (data.id || data.url) {
+      showStatus("✅ Saved to Journal: " + (data.url || data.id), true);
+    } else {
+      showStatus("❌ Error: " + (data.message || JSON.stringify(data)), false);
+    }
+  } catch(e) {
+    showStatus("❌ " + e.message, false);
+  }
 }
  
 // Load saved state

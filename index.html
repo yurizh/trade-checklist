@@ -31,6 +31,12 @@
   .btn-reset:hover { color: var(--fg); border-color: var(--muted); }
   .flow { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; margin-bottom: 8px; }
  
+  .col-row { display: flex; gap: 8px; margin-bottom: 4px; }
+  .col-row > .group { flex: 1; min-width: 0; }
+  .col-row .pills { flex-direction: column; gap: 3px; }
+  .col-row .pill { text-align: center; }
+  .col-row .row { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .col-row .lbl { min-width: auto; }
   .group { padding: 6px 0 6px 12px; margin-bottom: 4px; }
   .group-title { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
   .rules-btn { font-size: 11px; color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit; margin-left: auto; padding: 0; }
@@ -158,10 +164,13 @@ function render() {
   let html = "";
   const hasStop = Object.values(state).some(v => STOP.has(v));
   
-  for (const g of GROUPS) {
+  for (let i = 0; i < GROUPS.length; i++) {
+    const g = GROUPS[i];
     const allFilled = g.fields.every(f => f.id === "disp" ? state.disp : state[f.id]);
     const groupStop = g.fields.some(f => STOP.has(state[f.id]));
-    const statusIcon = groupStop ? '<span class="status-icon" style="color:#ef4444">⛔</span>' : allFilled ? '<span class="status-icon" style="color:#4ade80">✓</span>' : '';
+    const statusIcon = groupStop ? '<span class="status-icon" style="color:var(--red)">⛔</span>' : allFilled ? '<span class="status-icon" style="color:var(--green)">✓</span>' : '';
+    
+    if (g.key === "market") html += '<div class="col-row">';
     
     html += `<div class="group" style="border-left:3px solid ${g.color}">`;
     html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}`;
@@ -208,6 +217,7 @@ function render() {
       html += `</div>`;
     }
     html += `</div>`;
+    if (g.key === "funding") html += '</div>';
   }
   el.innerHTML = html;
   

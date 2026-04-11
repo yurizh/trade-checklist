@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Checklist</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; color: #e2e8f0; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 8px 12px; max-width: 920px; margin: 0 auto; }
+  
+  .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; padding-bottom: 5px; margin-bottom: 5px; }
+  .header-title { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; }
+  .header-right { display: flex; gap: 10px; align-items: center; }
+  .verdict-label { font-size: 12px; font-weight: 800; letter-spacing: 0.1em; }
+  .verdict-trade { color: #4ade80; text-shadow: 0 0 12px rgba(74,222,128,0.4); }
+  .verdict-notrade { color: #ef4444; text-shadow: 0 0 12px rgba(239,68,68,0.4); }
+  .btn-reset { font-size: 10px; color: #666; background: none; border: 1px solid #333; border-radius: 3px; padding: 2px 8px; cursor: pointer; font-family: inherit; }
+  .btn-reset:hover { color: #999; border-color: #555; }
+  .flow { font-size: 9px; color: #555; letter-spacing: 0.05em; margin-bottom: 6px; }
+
+  .group { padding: 5px 0 5px 10px; margin-bottom: 3px; }
+  .group-title { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; margin-bottom: 3px; display: flex; align-items: center; gap: 8px; }
+  .rules-btn { font-size: 9px; color: #555; background: none; border: none; cursor: pointer; font-family: inherit; margin-left: auto; padding: 0; }
+  .rules-btn:hover { color: #888; }
+  .rules-text { font-size: 9px; color: #666; line-height: 1.5; margin-bottom: 4px; padding-right: 8px; }
+  .status-icon { font-size: 10px; }
+
+  .row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; flex-wrap: wrap; }
+  .lbl { font-size: 11px; color: #999; min-width: 72px; flex-shrink: 0; }
+  .pills { display: flex; gap: 4px; flex-wrap: wrap; }
+
+  .pill { padding: 3px 10px; font-size: 11px; font-family: 'JetBrains Mono', monospace; border: 1px solid #333; border-radius: 3px; background: transparent; color: #888; cursor: pointer; transition: all 0.15s; white-space: nowrap; letter-spacing: 0.02em; }
+  .pill:hover { border-color: #555; color: #bbb; }
+  .pill.sel { border-color: #4ade80; background: rgba(74,222,128,0.12); color: #86efac; font-weight: 600; }
+  .pill.sel-stop { border-color: #ef4444; background: rgba(239,68,68,0.15); color: #fca5a5; font-weight: 600; }
+
+  .disp-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .disp-check { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-size: 11px; color: #666; }
+  .disp-check.checked { color: #86efac; }
+  .disp-check input { accent-color: #4ade80; width: 12px; height: 12px; }
+  .disp-result { font-size: 10px; font-weight: 700; }
+  .disp-pass { color: #4ade80; }
+  .disp-fail { color: #ef4444; }
+
+  .mini-input { background: #111; border: 1px solid #333; border-radius: 3px; color: #e2e8f0; padding: 2px 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; width: 64px; }
+  .mini-input:focus { outline: none; border-color: #555; }
+  .mini-input.w48 { width: 48px; }
+  .mini-input.flex { flex: 1; width: auto; }
+
+  .footer { border-top: 1px solid #222; padding-top: 4px; margin-top: 3px; }
+  .footer-row { display: flex; gap: 8px; align-items: center; }
+  .post-btn { font-size: 9px; color: #555; background: none; border: 1px solid #333; border-radius: 3px; padding: 2px 6px; cursor: pointer; font-family: inherit; }
+  .post-btn:hover { color: #888; border-color: #555; }
+  .post-text { font-size: 9px; color: #666; line-height: 1.6; white-space: pre-line; padding: 4px 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-title">TRADE CHECKLIST</div>
+  <div class="header-right">
+    <span id="verdict"></span>
+    <button class="btn-reset" onclick="resetAll()">RESET</button>
+  </div>
+</div>
+<div class="flow">HTF Context → Market State → OI → Funding → Entry → Trade&Risk │ Any ⛔ = NO TRADE</div>
+
+<div id="checklist"></div>
+
+<div class="footer">
+  <div class="footer-row">
+    <span class="lbl">Notes</span>
+    <input class="mini-input flex" id="notes" placeholder="observations, context...">
+    <button class="post-btn" id="postBtn" onclick="togglePost()">▶ POST-ENTRY</button>
+  </div>
+  <div id="postRules" style="display:none" class="post-text">BE: >0.5R→BE@StructBreak | >1R+OI↓→BE@Entry | >1R+OI↑→hold | TimeStop→±0.3Loss
+Time: A=4h, B=2h | Max 4-6h | Re-entry: new disp+OI build+30-60m reset
+OI 5M: ≥1%/30m→hold | <0.5%→reduce50%+BE | spike>2%/5-15m→exit | drop>2%→profit:reduce+BE, entry:exit
+Exit: no disp 3-5 candles→exit 50-100% | no confirm 30-60m→invalidate | 2 stops→skip 1 day</div>
+</div>
+
+<script>
+const STOP = new Set(["S.Squeeze⛔","Flat⛔","No⛔","Diverge⛔","Extreme⛔","No Trade⛔","Mid-Range⛔","Fail⛔","Conflict⛔"]);
+
+const GROUPS = [
+  { key:"htf", title:"1. HTF CONTEXT", color:"#3b82f6",
+    rules:"Bias: W/D bullish→Long, bearish→Short, balanced→both↓ | Liquidity: above→upside, below→downside, swept→reversal | Regime: 3/3→Max, 2/3→Normal, <2/3→Low reversal only | Clean Path: no HTF barriers, target liquidity visible",
+    fields:[
+      {id:"bias",label:"Bias",opts:["Bullish","Bearish","Balanced"]},
+      {id:"liquidity",label:"Liquidity",opts:["Above","Below","Swept"]},
+      {id:"barrier",label:"Barrier",opts:["No","Yes↓"]},
+      {id:"regime",label:"Regime",opts:["Trend 3/3","Mod 2/3","Neutral"]},
+      {id:"clean",label:"Clean Path",opts:["Yes","No"]}
+    ]},
+  { key:"market", title:"2. MARKET STATE", color:"#8b5cf6",
+    rules:"Bullish=P↑+OI↑(+3%) | Bearish=P↓+OI↑ | L.Squeeze=P↓+OI↓(reversal@HTF) | S.Squeeze=P↑+OI↓→⛔ | State≠OI→No Trade",
+    fields:[
+      {id:"pricedir",label:"Price 3-5h",opts:["Up","Down","Flat"]},
+      {id:"oidir",label:"OI 3-5h",opts:["Rising","Falling","Flat"]},
+      {id:"state",label:"State",opts:["Bullish","Bearish","L.Squeeze","S.Squeeze⛔","Flat⛔"]}
+    ]},
+  { key:"oi", title:"3. OI CONFIRM", color:"#06b6d4",
+    rules:"Steady growth 30-60min=best | Flat 3H+=reversal only | Divergence=⛔ | Threshold: Low 2-3%, Norm 3-4%, High 4-6%, Alts×2",
+    fields:[
+      {id:"oibehav",label:"OI 30-60m",opts:["Growth✅","Flat 3H+","Diverge⛔"]},
+      {id:"oiconfirm",label:"Confirms",opts:["Yes","No⛔"]}
+    ]},
+  { key:"funding", title:"4. FUNDING", color:"#f59e0b",
+    rules:"Extreme+OI flat=⛔ | Rising+price flat=⛔ | |F|>0.05% against=half risk | Spike/Flipping=⚠️",
+    fields:[
+      {id:"ftrend",label:"Trend 8-48h",opts:["Stable","Rising⚠️","Extreme⛔","Flip⚠️"]},
+      {id:"fcheck",label:"Check",opts:["OK","Half Risk","No Trade⛔"]}
+    ],
+    extra:"funding_rate"},
+  { key:"entry", title:"5. ENTRY SETUP", color:"#10b981",
+    rules:"Disp 15M ALL4: Body≥60%, Wick≤35%, Range≥1.2×ATR, Vol≥1.3×Avg | ATR Buffer: P>0.5×ATR from MO/WO/DO | Mid-Range=No Predictive | Monday: WO=DO=2/3",
+    fields:[
+      {id:"session",label:"Session",opts:["Breakout","Sweep","Mid-Range⛔"]},
+      {id:"trigger",label:"Trigger",opts:["BOS","Liq.Sweep"]},
+      {id:"disp",label:"Displacement",opts:[]},
+      {id:"confirm",label:"Confirm",opts:["Continuation","Acceptance","None"]},
+      {id:"atrbuf",label:"ATR Buffer",opts:["Yes","No⛔"]},
+      {id:"smt",label:"SMT",opts:["Yes","No","N/A"]}
+    ]},
+  { key:"trade", title:"6. TRADE & RISK", color:"#ef4444",
+    rules:"A: max1 BTC/ETH/SOL, High 3/3+SMT→2% RR1:2.5, Std→1% RR1:2 | B: 0.5% RR1:2, no mid-range | TP Trend:30/40/30 Mod:50/30/20 | Total<3%",
+    fields:[
+      {id:"type",label:"Type",opts:["A Reactive","B Predictive"]},
+      {id:"conviction",label:"Conviction",opts:["High 3/3+SMT","Standard"]},
+      {id:"direction",label:"Direction",opts:["Long","Short"]},
+      {id:"corrcheck",label:"Correlation",opts:["OK","Conflict⛔"]}
+    ],
+    extra:"trade_nums"}
+];
+
+const DISP_CRIT = [{id:"d_body",label:"Body≥60%"},{id:"d_wick",label:"Wick≤35%"},{id:"d_range",label:"Range≥1.2×ATR"},{id:"d_vol",label:"Vol≥1.3×Avg"}];
+
+let state = {};
+let dispState = {d_body:false, d_wick:false, d_range:false, d_vol:false};
+let rulesOpen = {};
+let postOpen = false;
+
+function render() {
+  const el = document.getElementById("checklist");
+  let html = "";
+  const hasStop = Object.values(state).some(v => STOP.has(v));
+  
+  for (const g of GROUPS) {
+    const allFilled = g.fields.every(f => f.id === "disp" ? state.disp : state[f.id]);
+    const groupStop = g.fields.some(f => STOP.has(state[f.id]));
+    const statusIcon = groupStop ? '<span class="status-icon" style="color:#ef4444">⛔</span>' : allFilled ? '<span class="status-icon" style="color:#4ade80">✓</span>' : '';
+    
+    html += `<div class="group" style="border-left:3px solid ${g.color}">`;
+    html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}`;
+    html += `<button class="rules-btn" onclick="toggleRules('${g.key}')">${rulesOpen[g.key] ? '▼rules' : '▶rules'}</button></div>`;
+    if (rulesOpen[g.key]) html += `<div class="rules-text">${g.rules}</div>`;
+    
+    for (const f of g.fields) {
+      if (f.id === "disp") {
+        html += `<div class="row"><span class="lbl">${f.label}</span><div class="disp-row">`;
+        for (const dc of DISP_CRIT) {
+          const ch = dispState[dc.id];
+          html += `<label class="disp-check ${ch?'checked':''}"><input type="checkbox" ${ch?'checked':''} onchange="toggleDisp('${dc.id}')">${dc.label}</label>`;
+        }
+        if (state.disp) {
+          const pass = state.disp === "Pass✅";
+          html += `<span class="disp-result ${pass?'disp-pass':'disp-fail'}">→ ${state.disp}</span>`;
+        }
+        html += `</div></div>`;
+        continue;
+      }
+      html += `<div class="row"><span class="lbl">${f.label}</span><div class="pills">`;
+      for (const o of f.opts) {
+        const sel = state[f.id] === o;
+        const isStop = STOP.has(o);
+        const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
+        html += `<button class="${cls}" onclick="pick('${f.id}','${o.replace(/'/g,"\\'")}')">${o}</button>`;
+      }
+      html += `</div></div>`;
+    }
+    
+    if (g.extra === "funding_rate") {
+      html += `<div class="row"><span class="lbl">Rate %</span><input class="mini-input" id="inp_funding" oninput="saveInput(this)" placeholder="0.01"></div>`;
+    }
+    if (g.extra === "trade_nums") {
+      html += `<div class="row" style="margin-top:2px">`;
+      html += `<span class="lbl">Risk %</span><input class="mini-input w48" id="inp_risk" oninput="saveInput(this)">`;
+      html += `<span class="lbl">Entry</span><input class="mini-input" id="inp_entry" oninput="saveInput(this)">`;
+      html += `<span class="lbl">Stop</span><input class="mini-input" id="inp_stop" oninput="saveInput(this)">`;
+      html += `</div><div class="row">`;
+      html += `<span class="lbl">TP1</span><input class="mini-input" id="inp_tp1" oninput="saveInput(this)">`;
+      html += `<span class="lbl">TP2</span><input class="mini-input" id="inp_tp2" oninput="saveInput(this)">`;
+      html += `<span class="lbl">TP3</span><input class="mini-input" id="inp_tp3" oninput="saveInput(this)">`;
+      html += `<span class="lbl">RR</span><input class="mini-input w48" id="inp_rr" oninput="saveInput(this)">`;
+      html += `</div>`;
+    }
+    html += `</div>`;
+  }
+  el.innerHTML = html;
+  
+  // restore input values
+  document.querySelectorAll('.mini-input[id^="inp_"]').forEach(inp => {
+    const k = inp.id.replace('inp_','');
+    if (localStorage.getItem('tc_'+k)) inp.value = localStorage.getItem('tc_'+k);
+  });
+  
+  // verdict
+  const vEl = document.getElementById("verdict");
+  const allGroupsFilled = GROUPS.every(g => g.fields.every(f => f.id === "disp" ? state.disp : state[f.id]));
+  if (hasStop) vEl.innerHTML = '<span class="verdict-label verdict-notrade">🔴 NO TRADE</span>';
+  else if (allGroupsFilled) vEl.innerHTML = '<span class="verdict-label verdict-trade">🟢 TRADE</span>';
+  else vEl.innerHTML = '';
+}
+
+function pick(id, val) {
+  state[id] = state[id] === val ? undefined : val;
+  localStorage.setItem('tc_state', JSON.stringify(state));
+  render();
+}
+
+function toggleDisp(id) {
+  dispState[id] = !dispState[id];
+  const all = Object.values(dispState).every(Boolean);
+  const any = Object.values(dispState).some(Boolean);
+  state.disp = all ? "Pass✅" : any ? "Fail⛔" : undefined;
+  localStorage.setItem('tc_state', JSON.stringify(state));
+  localStorage.setItem('tc_disp', JSON.stringify(dispState));
+  render();
+}
+
+function toggleRules(key) { rulesOpen[key] = !rulesOpen[key]; render(); }
+
+function togglePost() {
+  postOpen = !postOpen;
+  document.getElementById("postRules").style.display = postOpen ? "block" : "none";
+  document.getElementById("postBtn").textContent = (postOpen ? "▼" : "▶") + " POST-ENTRY";
+}
+
+function saveInput(el) {
+  const k = el.id.replace('inp_','');
+  localStorage.setItem('tc_'+k, el.value);
+}
+
+function resetAll() {
+  state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false};
+  ['state','disp','funding','risk','entry','stop','tp1','tp2','tp3','rr'].forEach(k => localStorage.removeItem('tc_'+k));
+  localStorage.removeItem('tc_state');
+  document.getElementById("notes").value = "";
+  render();
+}
+
+// Load saved state
+try {
+  const s = localStorage.getItem('tc_state');
+  if (s) state = JSON.parse(s);
+  const d = localStorage.getItem('tc_disp');
+  if (d) dispState = JSON.parse(d);
+} catch(e) {}
+
+render();
+</script>
+</body>
+</html>

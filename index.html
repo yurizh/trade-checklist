@@ -114,9 +114,13 @@
 <div id="checklist"></div>
  
 <div class="footer">
-  <div class="footer-row">
+  <div class="footer-row" style="margin-bottom:4px">
     <span class="lbl">Notes</span>
-    <input class="mini-input flex" id="notes" placeholder="observations, context...">
+    <input class="mini-input flex" id="notes" placeholder="observations, context..." oninput="localStorage.setItem('tc_notes',this.value)">
+  </div>
+  <div class="footer-row">
+    <span class="lbl">Screenshot</span>
+    <input class="mini-input flex" id="screenshot" placeholder="https://..." oninput="localStorage.setItem('tc_screenshot',this.value)">
     <button class="post-btn" id="postBtn" onclick="togglePost()">▶ POST-ENTRY</button>
   </div>
   <div id="postRules" style="display:none" class="post-text">BE: >0.5R→BE@StructBreak | >1R+OI↓→BE@Entry | >1R+OI↑→hold | TimeStop→±0.3Loss
@@ -314,9 +318,10 @@ function saveInput(el) {
  
 function resetAll() {
   state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false};
-  ['state','disp','funding','risk','entry','stop','tp1','tp2','tp3','rr'].forEach(k => localStorage.removeItem('tc_'+k));
+  ['state','disp','funding','risk','entry','stop','tp1','tp2','tp3','rr','notes','screenshot'].forEach(k => localStorage.removeItem('tc_'+k));
   localStorage.removeItem('tc_state');
   document.getElementById("notes").value = "";
+  document.getElementById("screenshot").value = "";
   render();
   renderTopPills();
 }
@@ -395,9 +400,11 @@ async function saveToNotion() {
   // RR as text
   const rr = localStorage.getItem("tc_rr");
   if (rr) props["RR Target"] = rr;
-  // Notes
+  // Notes & Screenshot
   const notes = document.getElementById("notes").value;
   if (notes) props["Notes"] = notes;
+  const screenshot = document.getElementById("screenshot").value;
+  if (screenshot) props["Screenshot"] = screenshot;
  
   showStatus("⏳ Saving...", true);
   try {
@@ -427,6 +434,9 @@ try {
  
 render();
 renderTopPills();
+// Restore notes & screenshot
+if (localStorage.getItem('tc_notes')) document.getElementById('notes').value = localStorage.getItem('tc_notes');
+if (localStorage.getItem('tc_screenshot')) document.getElementById('screenshot').value = localStorage.getItem('tc_screenshot');
 </script>
 </body>
 </html>

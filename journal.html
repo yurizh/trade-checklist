@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Journal</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap');
+  :root {
+    --bg: #fff; --card: #fafafa; --fg: #1a1a1a; --muted: #888; --border: #e0e0e0;
+    --green: #16a34a; --green-bg: rgba(22,163,74,0.08); --red: #dc2626; --red-bg: rgba(220,38,38,0.08);
+    --blue: #2563eb; --blue-bg: rgba(37,99,235,0.06); --purple: #7c3aed; --orange: #ea580c; --yellow: #ca8a04;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111; --card: #1a1a1a; --fg: #e2e8f0; --muted: #888; --border: #2a2a2a;
+      --green: #4ade80; --green-bg: rgba(74,222,128,0.08); --red: #f87171; --red-bg: rgba(248,113,113,0.08);
+      --blue: #60a5fa; --blue-bg: rgba(96,165,250,0.06); --purple: #a78bfa; --orange: #fb923c; --yellow: #fbbf24;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--fg); font-family: 'JetBrains Mono', monospace; font-size: 13px; padding: 12px 16px; max-width: 1100px; margin: 0 auto; }
+
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .title { font-size: 16px; font-weight: 800; letter-spacing: 0.1em; }
+  .hdr-btns { display: flex; gap: 8px; align-items: center; }
+  .btn { font-size: 12px; font-family: inherit; color: var(--muted); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+  .btn:hover { color: var(--fg); border-color: var(--muted); }
+
+  .settings { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 12px; font-size: 12px; }
+  .settings-row { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .settings-row:last-child { margin-bottom: 0; }
+  .inp { background: var(--card); border: 1px solid var(--border); border-radius: 4px; color: var(--fg); padding: 4px 8px; font-size: 12px; font-family: inherit; flex: 1; }
+  .inp:focus { outline: none; border-color: var(--muted); }
+
+  .stats { display: flex; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+  .stat { font-size: 12px; color: var(--muted); }
+  .stat b { color: var(--fg); }
+
+  .filters { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .ftag { font-size: 11px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; color: var(--muted); background: none; font-family: inherit; }
+  .ftag.active { border-color: var(--blue); color: var(--blue); background: var(--blue-bg); }
+
+  .cards { display: flex; flex-direction: column; gap: 6px; }
+
+  .card {
+    border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px;
+    background: var(--card); display: grid;
+    grid-template-columns: 60px 1fr 1fr 1fr 1fr auto;
+    gap: 4px 16px; align-items: center;
+  }
+  .card.long { border-left: 3px solid var(--green); }
+  .card.short { border-left: 3px solid var(--red); }
+
+  .card-id { font-size: 11px; color: var(--muted); font-weight: 600; }
+  .card-date { font-size: 11px; color: var(--muted); }
+  .card-main { display: flex; align-items: center; gap: 6px; }
+  .card-asset { font-weight: 800; font-size: 15px; }
+  .card-dir { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 3px; }
+  .card-dir.long { color: var(--green); background: var(--green-bg); }
+  .card-dir.short { color: var(--red); background: var(--red-bg); }
+  .card-type { font-size: 10px; color: var(--purple); font-weight: 600; }
+  .card-conviction { font-size: 10px; color: var(--orange); }
+
+  .card-section { display: flex; flex-direction: column; gap: 1px; }
+  .card-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .card-val { font-size: 12px; }
+
+  .card-ctx { display: flex; gap: 4px; flex-wrap: wrap; }
+  .ctx-tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+
+  .card-pnl { font-size: 16px; font-weight: 800; text-align: right; min-width: 60px; }
+  .card-pnl.win { color: var(--green); }
+  .card-pnl.loss { color: var(--red); }
+  .card-pnl.be { color: var(--yellow); }
+  .card-exit { font-size: 10px; color: var(--muted); text-align: right; }
+
+  .card-row2 {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 60px repeat(5, 1fr);
+    gap: 4px 16px;
+    border-top: 1px solid var(--border);
+    padding-top: 6px; margin-top: 2px;
+    font-size: 11px;
+  }
+  .card-row2 .card-label { font-size: 8px; }
+
+  .card-notes { grid-column: 1 / -1; font-size: 11px; color: var(--muted); font-style: italic; margin-top: 2px; }
+  .card-screenshot { grid-column: 1 / -1; margin-top: 2px; }
+  .card-screenshot a { font-size: 10px; color: var(--blue); }
+
+  .empty { text-align: center; color: var(--muted); padding: 40px; font-size: 14px; }
+  .loading { text-align: center; color: var(--muted); padding: 20px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="title">TRADE JOURNAL</div>
+  <div class="hdr-btns">
+    <button class="btn" onclick="loadTrades()">↻ Refresh</button>
+    <button class="btn" onclick="toggleSettings()">⚙️</button>
+  </div>
+</div>
+
+<div id="settings" style="display:none" class="settings">
+  <div class="settings-row">
+    <span style="min-width:80px;color:var(--muted)">Worker URL</span>
+    <input class="inp" id="cfg_worker" oninput="saveCfg()">
+  </div>
+  <div class="settings-row">
+    <span style="min-width:80px;color:var(--muted)">Token</span>
+    <input class="inp" id="cfg_token" type="password" oninput="saveCfg()">
+  </div>
+</div>
+
+<div id="statsBar" class="stats"></div>
+<div id="filterBar" class="filters"></div>
+<div id="cards" class="cards"></div>
+
+<script>
+const DB_ID = "24933910ce304b65a1f50b137d7392ae";
+let trades = [];
+let filter = null;
+
+function toggleSettings() {
+  const s = document.getElementById("settings");
+  s.style.display = s.style.display === "none" ? "block" : "none";
+  document.getElementById("cfg_worker").value = localStorage.getItem("tc_worker") || "";
+  document.getElementById("cfg_token").value = localStorage.getItem("tc_token") || "";
+}
+function saveCfg() {
+  localStorage.setItem("tc_worker", document.getElementById("cfg_worker").value);
+  localStorage.setItem("tc_token", document.getElementById("cfg_token").value);
+}
+
+async function loadTrades() {
+  const worker = localStorage.getItem("tc_worker");
+  const token = localStorage.getItem("tc_token");
+  if (!worker || !token) { toggleSettings(); return; }
+
+  document.getElementById("cards").innerHTML = '<div class="loading">Loading...</div>';
+
+  try {
+    const resp = await fetch(worker, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ action: "read", token, database_id: DB_ID, page_size: 50 })
+    });
+    const data = await resp.json();
+    trades = data.results || [];
+    renderAll();
+  } catch(e) {
+    document.getElementById("cards").innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+  }
+}
+
+function renderAll() {
+  renderStats();
+  renderFilters();
+  renderCards();
+}
+
+function renderStats() {
+  const closed = trades.filter(t => t["PnL R"] !== null && t["PnL R"] !== undefined);
+  const wins = closed.filter(t => t["PnL R"] > 0);
+  const losses = closed.filter(t => t["PnL R"] < 0);
+  const totalR = closed.reduce((s, t) => s + (t["PnL R"] || 0), 0);
+  const wr = closed.length ? Math.round(wins.length / closed.length * 100) : 0;
+
+  document.getElementById("statsBar").innerHTML = `
+    <div class="stat">Trades: <b>${trades.length}</b></div>
+    <div class="stat">Closed: <b>${closed.length}</b></div>
+    <div class="stat">Win Rate: <b style="color:${wr>=50?'var(--green)':'var(--red)'}">${wr}%</b></div>
+    <div class="stat">Total PnL: <b style="color:${totalR>=0?'var(--green)':'var(--red)'}">${totalR>=0?'+':''}${totalR.toFixed(1)}R</b></div>
+    <div class="stat">W/L: <b style="color:var(--green)">${wins.length}</b>/<b style="color:var(--red)">${losses.length}</b></div>
+  `;
+}
+
+function renderFilters() {
+  const assets = [...new Set(trades.map(t => t.Asset).filter(Boolean))];
+  const types = [...new Set(trades.map(t => t["Trade Type"]).filter(Boolean))];
+  const all = [{ label: "All", val: null }, ...assets.map(a => ({label:a,val:"asset:"+a})), ...types.map(t => ({label:t,val:"type:"+t}))];
+
+  document.getElementById("filterBar").innerHTML = all.map(f =>
+    `<button class="ftag ${filter===f.val?'active':''}" onclick="setFilter(${f.val===null?'null':`'${f.val}'`})">${f.label}</button>`
+  ).join("");
+}
+
+function setFilter(f) { filter = f; renderCards(); renderFilters(); }
+
+function renderCards() {
+  let data = trades;
+  if (filter) {
+    const [k,v] = filter.split(":");
+    if (k === "asset") data = data.filter(t => t.Asset === v);
+    if (k === "type") data = data.filter(t => t["Trade Type"] === v);
+  }
+
+  if (!data.length) {
+    document.getElementById("cards").innerHTML = '<div class="empty">No trades yet</div>';
+    return;
+  }
+
+  document.getElementById("cards").innerHTML = data.map(t => {
+    const dir = (t.Direction || "").toLowerCase();
+    const pnlR = t["PnL R"];
+    const pnlClass = pnlR > 0 ? "win" : pnlR < 0 ? "loss" : pnlR === 0 ? "be" : "";
+    const pnlText = pnlR !== null && pnlR !== undefined ? `${pnlR>=0?'+':''}${pnlR.toFixed(1)}R` : "—";
+    const date = t.Date ? t.Date.slice(0,10) : "";
+    const time = t.Date && t.Date.length > 10 ? t.Date.slice(11,16) : "";
+
+    const ctxTags = [t["HTF Bias"], t["Day Regime"], t["Market State"], t["OI Confirm"]?`OI:${t["OI Confirm"]}`:"", t["Funding Check"]?`F:${t["Funding Check"]}`:"", t.Session, t.Trigger, t.Displacement?`Disp:${t.Displacement}`:"", t.SMT?`SMT:${t.SMT}`:""].filter(Boolean);
+
+    return `<div class="card ${dir}">
+      <div>
+        <div class="card-id">${t["Trade ID"] || ""}</div>
+        <div class="card-date">${date}</div>
+        <div class="card-date">${time}</div>
+      </div>
+      <div class="card-main">
+        <span class="card-asset">${t.Asset || "?"}</span>
+        <span class="card-dir ${dir}">${t.Direction || ""}</span>
+        <span class="card-type">${t["Trade Type"] || ""}</span>
+        <span class="card-conviction">${t.Conviction || ""}</span>
+      </div>
+      <div class="card-section">
+        <span class="card-label">Entry / Stop</span>
+        <span class="card-val">${fmt(t["Entry Price"])} / ${fmt(t["Stop Price"])}</span>
+      </div>
+      <div class="card-section">
+        <span class="card-label">Targets</span>
+        <span class="card-val">${fmt(t.TP1)} → ${fmt(t.TP2)} → ${fmt(t.TP3)}</span>
+      </div>
+      <div class="card-section">
+        <span class="card-label">Risk / RR</span>
+        <span class="card-val">${t["Risk %"]!=null?t["Risk %"]+"%":"—"} / ${t["RR Target"]||"—"}</span>
+      </div>
+      <div style="text-align:right">
+        <div class="card-pnl ${pnlClass}">${pnlText}</div>
+        <div class="card-exit">${t["Exit Reason"]||""} ${t["Exit Price"]!=null?'@ '+fmt(t["Exit Price"]):""}</div>
+      </div>
+
+      <div class="card-row2">
+        <div></div>
+        <div class="card-ctx">${ctxTags.map(c=>`<span class="ctx-tag">${c}</span>`).join("")}</div>
+        <div class="card-section"><span class="card-label">Mode</span><span class="card-val">${t.Mode||""}</span></div>
+        <div class="card-section"><span class="card-label">OI% / Funding</span><span class="card-val">${t["OI at Entry %"]!=null?t["OI at Entry %"]+"%":"—"} / ${t["Funding at Entry"]!=null?t["Funding at Entry"]:""}</span></div>
+        <div>${(t.Tags||[]).length?t.Tags.map(tg=>`<span class="ctx-tag">${tg}</span>`).join(" "):""}</div>
+        <div></div>
+      </div>
+      ${t.Notes?`<div class="card-notes">${esc(t.Notes)}</div>`:""}
+      ${t.Lessons?`<div class="card-notes">📝 ${esc(t.Lessons)}</div>`:""}
+      ${t.Screenshot?`<div class="card-screenshot"><a href="${esc(t.Screenshot)}" target="_blank">📷 Screenshot</a></div>`:""}
+    </div>`;
+  }).join("");
+}
+
+function fmt(v) { return v != null ? v : "—"; }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// Auto-load
+loadTrades();
+</script>
+</body>
+</html>

@@ -6,57 +6,69 @@
 <title>Trade Checklist</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
+  :root {
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #666; --border: #ddd; --input-bg: #f5f5f5;
+    --green: #16a34a; --green-bg: rgba(22,163,74,0.1); --green-text: #15803d;
+    --red: #dc2626; --red-bg: rgba(220,38,38,0.1); --red-text: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a1a; --fg: #e2e8f0; --muted: #999; --border: #333; --input-bg: #222;
+      --green: #4ade80; --green-bg: rgba(74,222,128,0.12); --green-text: #86efac;
+      --red: #ef4444; --red-bg: rgba(239,68,68,0.15); --red-text: #fca5a5;
+    }
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0a0a0a; color: #e2e8f0; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 8px 12px; max-width: 920px; margin: 0 auto; }
-  
-  .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; padding-bottom: 5px; margin-bottom: 5px; }
-  .header-title { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; }
+  body { background: var(--bg); color: var(--fg); font-family: 'JetBrains Mono', monospace; font-size: 14px; padding: 10px 16px; max-width: 960px; margin: 0 auto; }
+ 
+  .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 6px; }
+  .header-title { font-size: 16px; font-weight: 700; letter-spacing: 0.1em; }
   .header-right { display: flex; gap: 10px; align-items: center; }
-  .verdict-label { font-size: 12px; font-weight: 800; letter-spacing: 0.1em; }
-  .verdict-trade { color: #4ade80; text-shadow: 0 0 12px rgba(74,222,128,0.4); }
-  .verdict-notrade { color: #ef4444; text-shadow: 0 0 12px rgba(239,68,68,0.4); }
-  .btn-reset { font-size: 10px; color: #666; background: none; border: 1px solid #333; border-radius: 3px; padding: 2px 8px; cursor: pointer; font-family: inherit; }
-  .btn-reset:hover { color: #999; border-color: #555; }
-  .flow { font-size: 9px; color: #555; letter-spacing: 0.05em; margin-bottom: 6px; }
-
-  .group { padding: 5px 0 5px 10px; margin-bottom: 3px; }
-  .group-title { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; margin-bottom: 3px; display: flex; align-items: center; gap: 8px; }
-  .rules-btn { font-size: 9px; color: #555; background: none; border: none; cursor: pointer; font-family: inherit; margin-left: auto; padding: 0; }
-  .rules-btn:hover { color: #888; }
-  .rules-text { font-size: 9px; color: #666; line-height: 1.5; margin-bottom: 4px; padding-right: 8px; }
-  .status-icon { font-size: 10px; }
-
-  .row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; flex-wrap: wrap; }
-  .lbl { font-size: 11px; color: #999; min-width: 72px; flex-shrink: 0; }
-  .pills { display: flex; gap: 4px; flex-wrap: wrap; }
-
-  .pill { padding: 3px 10px; font-size: 11px; font-family: 'JetBrains Mono', monospace; border: 1px solid #333; border-radius: 3px; background: transparent; color: #888; cursor: pointer; transition: all 0.15s; white-space: nowrap; letter-spacing: 0.02em; }
-  .pill:hover { border-color: #555; color: #bbb; }
-  .pill.sel { border-color: #4ade80; background: rgba(74,222,128,0.12); color: #86efac; font-weight: 600; }
-  .pill.sel-stop { border-color: #ef4444; background: rgba(239,68,68,0.15); color: #fca5a5; font-weight: 600; }
-
-  .disp-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .disp-check { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-size: 11px; color: #666; }
-  .disp-check.checked { color: #86efac; }
-  .disp-check input { accent-color: #4ade80; width: 12px; height: 12px; }
-  .disp-result { font-size: 10px; font-weight: 700; }
-  .disp-pass { color: #4ade80; }
-  .disp-fail { color: #ef4444; }
-
-  .mini-input { background: #111; border: 1px solid #333; border-radius: 3px; color: #e2e8f0; padding: 2px 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; width: 64px; }
-  .mini-input:focus { outline: none; border-color: #555; }
-  .mini-input.w48 { width: 48px; }
+  .verdict-label { font-size: 15px; font-weight: 800; letter-spacing: 0.1em; }
+  .verdict-trade { color: var(--green); text-shadow: 0 0 12px rgba(74,222,128,0.3); }
+  .verdict-notrade { color: var(--red); text-shadow: 0 0 12px rgba(239,68,68,0.3); }
+  .btn-reset { font-size: 12px; color: var(--muted); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; cursor: pointer; font-family: inherit; }
+  .btn-reset:hover { color: var(--fg); border-color: var(--muted); }
+  .flow { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; margin-bottom: 8px; }
+ 
+  .group { padding: 6px 0 6px 12px; margin-bottom: 4px; }
+  .group-title { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .rules-btn { font-size: 11px; color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit; margin-left: auto; padding: 0; }
+  .rules-btn:hover { opacity: 0.7; }
+  .rules-text { font-size: 11px; color: var(--muted); line-height: 1.6; margin-bottom: 5px; padding-right: 8px; }
+  .status-icon { font-size: 13px; }
+ 
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+  .lbl { font-size: 13px; color: var(--muted); min-width: 85px; flex-shrink: 0; }
+  .pills { display: flex; gap: 5px; flex-wrap: wrap; }
+ 
+  .pill { padding: 4px 12px; font-size: 13px; font-family: 'JetBrains Mono', monospace; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; transition: all 0.15s; white-space: nowrap; letter-spacing: 0.02em; }
+  .pill:hover { border-color: var(--muted); color: var(--fg); }
+  .pill.sel { border-color: var(--green); background: var(--green-bg); color: var(--green-text); font-weight: 600; }
+  .pill.sel-stop { border-color: var(--red); background: var(--red-bg); color: var(--red-text); font-weight: 600; }
+ 
+  .disp-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .disp-check { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 13px; color: var(--muted); }
+  .disp-check.checked { color: var(--green-text); }
+  .disp-check input { accent-color: var(--green); width: 14px; height: 14px; }
+  .disp-result { font-size: 13px; font-weight: 700; }
+  .disp-pass { color: var(--green); }
+  .disp-fail { color: var(--red); }
+ 
+  .mini-input { background: var(--input-bg); border: 1px solid var(--border); border-radius: 4px; color: var(--fg); padding: 3px 8px; font-size: 13px; font-family: 'JetBrains Mono', monospace; width: 72px; }
+  .mini-input:focus { outline: none; border-color: var(--muted); }
+  .mini-input.w48 { width: 56px; }
   .mini-input.flex { flex: 1; width: auto; }
-
-  .footer { border-top: 1px solid #222; padding-top: 4px; margin-top: 3px; }
+ 
+  .footer { border-top: 1px solid var(--border); padding-top: 6px; margin-top: 4px; }
   .footer-row { display: flex; gap: 8px; align-items: center; }
-  .post-btn { font-size: 9px; color: #555; background: none; border: 1px solid #333; border-radius: 3px; padding: 2px 6px; cursor: pointer; font-family: inherit; }
-  .post-btn:hover { color: #888; border-color: #555; }
-  .post-text { font-size: 9px; color: #666; line-height: 1.6; white-space: pre-line; padding: 4px 0; }
+  .post-btn { font-size: 11px; color: var(--muted); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; cursor: pointer; font-family: inherit; }
+  .post-btn:hover { color: var(--fg); border-color: var(--muted); }
+  .post-text { font-size: 11px; color: var(--muted); line-height: 1.7; white-space: pre-line; padding: 5px 0; }
 </style>
 </head>
 <body>
-
+ 
 <div class="header">
   <div class="header-title">TRADE CHECKLIST</div>
   <div class="header-right">
@@ -65,9 +77,9 @@
   </div>
 </div>
 <div class="flow">HTF Context → Market State → OI → Funding → Entry → Trade&Risk │ Any ⛔ = NO TRADE</div>
-
+ 
 <div id="checklist"></div>
-
+ 
 <div class="footer">
   <div class="footer-row">
     <span class="lbl">Notes</span>
@@ -79,10 +91,10 @@ Time: A=4h, B=2h | Max 4-6h | Re-entry: new disp+OI build+30-60m reset
 OI 5M: ≥1%/30m→hold | <0.5%→reduce50%+BE | spike>2%/5-15m→exit | drop>2%→profit:reduce+BE, entry:exit
 Exit: no disp 3-5 candles→exit 50-100% | no confirm 30-60m→invalidate | 2 stops→skip 1 day</div>
 </div>
-
+ 
 <script>
 const STOP = new Set(["S.Squeeze⛔","Flat⛔","No⛔","Diverge⛔","Extreme⛔","No Trade⛔","Mid-Range⛔","Fail⛔","Conflict⛔"]);
-
+ 
 const GROUPS = [
   { key:"htf", title:"1. HTF CONTEXT", color:"#3b82f6",
     rules:"Bias: W/D bullish→Long, bearish→Short, balanced→both↓ | Liquidity: above→upside, below→downside, swept→reversal | Regime: 3/3→Max, 2/3→Normal, <2/3→Low reversal only | Clean Path: no HTF barriers, target liquidity visible",
@@ -133,14 +145,14 @@ const GROUPS = [
     ],
     extra:"trade_nums"}
 ];
-
+ 
 const DISP_CRIT = [{id:"d_body",label:"Body≥60%"},{id:"d_wick",label:"Wick≤35%"},{id:"d_range",label:"Range≥1.2×ATR"},{id:"d_vol",label:"Vol≥1.3×Avg"}];
-
+ 
 let state = {};
 let dispState = {d_body:false, d_wick:false, d_range:false, d_vol:false};
 let rulesOpen = {};
 let postOpen = false;
-
+ 
 function render() {
   const el = document.getElementById("checklist");
   let html = "";
@@ -212,13 +224,13 @@ function render() {
   else if (allGroupsFilled) vEl.innerHTML = '<span class="verdict-label verdict-trade">🟢 TRADE</span>';
   else vEl.innerHTML = '';
 }
-
+ 
 function pick(id, val) {
   state[id] = state[id] === val ? undefined : val;
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();
 }
-
+ 
 function toggleDisp(id) {
   dispState[id] = !dispState[id];
   const all = Object.values(dispState).every(Boolean);
@@ -228,20 +240,20 @@ function toggleDisp(id) {
   localStorage.setItem('tc_disp', JSON.stringify(dispState));
   render();
 }
-
+ 
 function toggleRules(key) { rulesOpen[key] = !rulesOpen[key]; render(); }
-
+ 
 function togglePost() {
   postOpen = !postOpen;
   document.getElementById("postRules").style.display = postOpen ? "block" : "none";
   document.getElementById("postBtn").textContent = (postOpen ? "▼" : "▶") + " POST-ENTRY";
 }
-
+ 
 function saveInput(el) {
   const k = el.id.replace('inp_','');
   localStorage.setItem('tc_'+k, el.value);
 }
-
+ 
 function resetAll() {
   state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false};
   ['state','disp','funding','risk','entry','stop','tp1','tp2','tp3','rr'].forEach(k => localStorage.removeItem('tc_'+k));
@@ -249,7 +261,7 @@ function resetAll() {
   document.getElementById("notes").value = "";
   render();
 }
-
+ 
 // Load saved state
 try {
   const s = localStorage.getItem('tc_state');
@@ -257,7 +269,7 @@ try {
   const d = localStorage.getItem('tc_disp');
   if (d) dispState = JSON.parse(d);
 } catch(e) {}
-
+ 
 render();
 </script>
 </body>

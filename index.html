@@ -134,32 +134,32 @@ const STOP = new Set(["S.Squeeze⛔","Flat⛔","No⛔","Diverge⛔","Extreme⛔"
  
 const GROUPS = [
   { key:"htf", title:"1. HTF CONTEXT", color:"#3b82f6",
-    rules:"Bias: W/D bullish→Long, bearish→Short, balanced→both↓ | Liquidity: above→upside, below→downside, swept→reversal | Regime: 3/3→Max, 2/3→Normal, <2/3→Low reversal only | Clean Path: no HTF barriers, target liquidity visible",
+    rules:"Bias defines direction | Regime restricts risk & mode | Liquidity & Barrier impact conviction | Lower conviction: Max→Normal→Low (triggers: Balanced, Swept, Barrier=Yes)",
     fields:[
       {id:"bias",label:"Bias",opts:["Bullish","Bearish","Balanced"]},
       {id:"liquidity",label:"Liquidity",opts:["Above","Below","Swept"]},
       {id:"barrier",label:"Barrier",opts:["No","Yes↓"]},
       {id:"regime",label:"Regime",opts:["Trend 3/3","Mod 2/3","Neutral"]},
-      {id:"clean",label:"Clean Path",opts:["Yes","No"]}
+      {id:"htf_call",label:"Trade Call",opts:["Long","Short","No Trade⛔"]},
+      {id:"htf_mode",label:"Mode",opts:["Continuation","Reversal"]}
     ]},
   { key:"market", title:"2. MARKET STATE", color:"#8b5cf6",
     rules:"Bullish=P↑+OI↑(+3%) | Bearish=P↓+OI↑ | L.Squeeze=P↓+OI↓(reversal@HTF) | S.Squeeze=P↑+OI↓→⛔ | State≠OI→No Trade",
     fields:[
-      {id:"pricedir",label:"Price 3-5h",opts:["Up","Down","Flat"]},
       {id:"oidir",label:"OI 3-5h",opts:["Rising","Falling","Flat"]},
-      {id:"state",label:"State",opts:["Bullish","Bearish","L.Squeeze","S.Squeeze⛔","Flat⛔"]}
+      {id:"state",label:"Price",opts:["Bullish","Bearish","L.Squeeze","S.Squeeze⛔","Flat⛔"]}
     ]},
   { key:"oi", title:"3. OI CONFIRM", color:"#06b6d4",
     rules:"Steady growth 30-60min=best | Flat 3H+=reversal only | Divergence=⛔ | Threshold: Low 2-3%, Norm 3-4%, High 4-6%, Alts×2",
     fields:[
       {id:"oibehav",label:"OI 30-60m",opts:["Growth✅","Flat 3H+","Diverge⛔"]},
-      {id:"oiconfirm",label:"Confirms",opts:["Yes","No⛔"]}
+      {id:"oiconfirm",label:"OI ↔ Dir",opts:["Yes","No⛔"]}
     ]},
   { key:"funding", title:"4. FUNDING", color:"#f59e0b",
     rules:"Extreme+OI flat=⛔ | Rising+price flat=⛔ | |F|>0.05% against=half risk | Spike/Flipping=⚠️",
     fields:[
       {id:"ftrend",label:"Trend 8-48h",opts:["Stable","Rising⚠️","Extreme⛔","Flip⚠️"]},
-      {id:"fcheck",label:"Check",opts:["OK","Half Risk","No Trade⛔"]}
+      {id:"fcheck",label:"Risk Adjust",opts:["OK","Half Risk","No Trade⛔"]}
     ],
     extra:"funding_rate"},
   { key:"entry", title:"5. ENTRY SETUP", color:"#10b981",
@@ -173,10 +173,9 @@ const GROUPS = [
       {id:"smt",label:"SMT",opts:["Yes","No","N/A"]}
     ]},
   { key:"trade", title:"6. TRADE & RISK", color:"#ef4444",
-    rules:"A: max1 BTC/ETH/SOL, High 3/3+SMT→2% RR1:2.5, Std→1% RR1:2 | B: 0.5% RR1:2, no mid-range | TP Trend:30/40/30 Mod:50/30/20 | Total<3%",
+    rules:"High: no blocks, core strong, HTF supports → 2%, RR 1:2-1:2.5, immediate OK | Standard: no blocks, 1+ reducing factor → 1%, RR 1:2, prefer retest | Low: blocked or weak → 0.5%, RR 1:2 | Max 1 concurrent BTC/ETH/SOL | Total<3%",
     fields:[
-      {id:"type",label:"Type",opts:["A Reactive","B Predictive"]},
-      {id:"conviction",label:"Conviction",opts:["High 3/3+SMT","Standard"]},
+      {id:"conviction",label:"Conviction",opts:["High","Standard","Low"]},
       {id:"direction",label:"Direction",opts:["Long","Short"]},
       {id:"corrcheck",label:"Correlation",opts:["OK","Conflict⛔"]}
     ],
@@ -350,10 +349,17 @@ const FIELD_MAP = {
   confirm:["Confirmation",{Continuation:"Continuation",Acceptance:"Acceptance",None:"None"}],
   smt:["SMT",{Yes:"Yes",No:"No","N/A":"N/A"}],
   session:["Session",{Breakout:"Breakout",Sweep:"Sweep","Mid-Range⛔":"Mid-Range"}],
-  type:["Trade Type",{"A Reactive":"A Reactive","B Predictive":"B Predictive"}],
-  conviction:["Conviction",{"High 3/3+SMT":"High 3/3+SMT",Standard:"Standard"}],
+  conviction:["Conviction",{High:"High",Standard:"Standard",Low:"Low"}],
   direction:["Direction",{Long:"Long",Short:"Short"}],
-  corrcheck:["", null]
+  htf_call:["",null],
+  htf_mode:["",null],
+  liquidity:["",null],
+  barrier:["",null],
+  oidir:["",null],
+  oibehav:["",null],
+  ftrend:["",null],
+  atrbuf:["",null],
+  corrcheck:["",null]
 };
  
 const DB_ID = "24933910ce304b65a1f50b137d7392ae";

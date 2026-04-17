@@ -52,6 +52,8 @@
   .tp-rr.good { color: var(--green); }
   .tp-rr.ok { color: var(--yellow); }
   .tp-rr.bad { color: var(--red); }
+  .card-ctx { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .ctx-tag { font-size: 10px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); background: var(--bg); }
   .results { margin-top: 16px; border-top: 2px solid var(--border); padding-top: 12px; }
   .results-title { font-size: 13px; font-weight: 800; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 8px; }
   .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; margin-bottom: 10px; }
@@ -122,7 +124,7 @@ async function loadTrades() {
       let elapsed = "";
       if (opened) { const d = Date.now() - opened.getTime(); const h = Math.floor(d/3600000); const m = Math.floor((d%3600000)/60000); elapsed = h > 0 ? h+"h "+m+"m" : m+"m"; }
       function rr(tp) { if (!tp || !risk) return ""; const r = (Math.abs(tp - entry) / risk).toFixed(1); return '<span class="tp-rr '+(r>=2?"good":r>=1?"ok":"bad")+'">1:'+r+'</span>'; }
-      const tags = [t["HTF Bias"], t["Market State"], t["OI Confirm"]?"OI:"+t["OI Confirm"]:"", t["Funding Check"]&&t["Funding Check"]!=="OK"?"F:"+t["Funding Check"]:"", t.Session, t.Trigger].filter(Boolean);
+      const tags = [t["HTF Bias"]?"HTF:"+t["HTF Bias"]:"", t["Market State"]?"MS:"+t["Market State"]:"", t["OI Confirm"]?"OI:"+t["OI Confirm"]:"", t["Funding Check"]&&t["Funding Check"]!=="OK"?"F:"+t["Funding Check"]:"", t.Session, t.Trigger].filter(Boolean);
       return '<div class="card '+dir+'">' +
         '<div class="card-top"><span class="card-asset">'+(t.Asset||"?")+'</span><span class="card-dir '+dir+'">'+(t.Direction||"")+'</span><span class="card-conv">'+(t.Conviction||"")+'</span><span class="card-mode">'+(t["Trade Mode"]||"")+'</span><span class="card-time">'+(elapsed?"⏱ "+elapsed:"")+'</span></div>' +
         '<div class="card-grid"><div><div class="card-label">Entry</div><div class="card-val">'+(entry!=null?entry:"—")+'</div></div><div><div class="card-label">Stop</div><div class="card-val" style="color:var(--red)">'+(stop!=null?stop:"—")+'</div></div><div><div class="card-label">Risk</div><div class="card-val">'+(t["Risk %"]!=null?t["Risk %"]+"%":"—")+'</div></div></div>' +
@@ -198,3 +200,4 @@ setInterval(loadTrades, 300000);
 </script>
 </body>
 </html>
+ 

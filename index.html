@@ -728,8 +728,7 @@ async function saveToNotion() {
   const dir = computeDirection();
   if (dir) props["Direction"] = dir;
   const {label: convSave, triggers: trigSave} = computeConviction();
-  if (convSave) props["Conviction"] = convSave;
-  props["Conv Triggers"] = trigSave;
+  if (convSave) props["Conviction"] = convSave + " (-" + trigSave + ")";
   // New fields
   if (state.liquidity) props["HTF Liquidity"] = state.liquidity;
   if (state.barrier) { props["HTF Barrier"] = state.barrier === "Yes↓" ? "Yes" : "No"; }

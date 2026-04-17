@@ -130,7 +130,7 @@ Exit: no disp 3-5 candles→exit 50-100% | no confirm 30-60m→invalidate | 2 st
 </div>
  
 <script>
-const STOP = new Set(["S.Squeeze⛔","Flat⛔","No⛔","Diverge⛔","Extreme⛔","No Trade⛔","Mid-Range⛔","Fail⛔","Conflict⛔"]);
+const STOP = new Set(["S.Squeeze⛔","Flat⛔","Diverge⛔","Extreme⛔","No Trade⛔","Fail⛔","Conflict⛔","No Resolution 60-90m⛔","Spike⛔","Too Close⛔","Too Far⛔"]);
  
 const GROUPS = [
   { key:"htf", title:"1. HTF CONTEXT", color:"#3b82f6",
@@ -139,45 +139,50 @@ const GROUPS = [
       {id:"bias",label:"Bias",opts:["Bullish","Bearish","Balanced"]},
       {id:"liquidity",label:"Liquidity",opts:["Above","Below","Swept"]},
       {id:"barrier",label:"Barrier",opts:["No","Yes↓"]},
-      {id:"regime",label:"Regime",opts:["Trend 3/3","Mod 2/3","Neutral"]},
-      {id:"htf_call",label:"Trade Call",opts:["Long","Short","No Trade⛔"]},
-      {id:"htf_mode",label:"Mode",opts:["Continuation","Reversal"]}
+      {id:"regime",label:"Regime",opts:["Trend 3/3","Mod 2/3","Neutral"]}
     ]},
   { key:"market", title:"2. MARKET STATE", color:"#8b5cf6",
-    rules:"Bullish=P↑+OI↑(+3%) | Bearish=P↓+OI↑ | L.Squeeze=P↓+OI↓(reversal@HTF) | S.Squeeze=P↑+OI↓→⛔ | State≠OI→No Trade",
+    rules:"Bullish=P↑+OI↑ | Bearish=P↓+OI↑ | Squeeze=OI↓→⛔ wait resolution | Flat=OI flat→⛔",
     fields:[
-      {id:"oidir",label:"OI 3-5h",opts:["Rising","Falling","Flat"]},
-      {id:"state",label:"Price",opts:["Bullish","Bearish","L.Squeeze","S.Squeeze⛔","Flat⛔"]}
+      {id:"pricedir",label:"Price 3-5h",opts:["Up","Down","Flat"]},
+      {id:"oidir",label:"OI 3-5h",opts:["Rising","Falling","Flat"]}
     ]},
-  { key:"oi", title:"3. OI CONFIRM", color:"#06b6d4",
-    rules:"Steady growth 30-60min=best | Flat 3H+=reversal only | Divergence=⛔ | Threshold: Low 2-3%, Norm 3-4%, High 4-6%, Alts×2",
+  { key:"oi", title:"3. OI 15M", color:"#06b6d4",
+    rules:"Growth+confirms=best | Growth+against=trap↓ | Growth+P.flat=diverge⛔ | OI Flat=↓conv, no continuation | Spike=⛔ no new trade",
     fields:[
-      {id:"oibehav",label:"OI 30-60m",opts:["Growth✅","Flat 3H+","Diverge⛔"]},
-      {id:"oiconfirm",label:"OI ↔ Dir",opts:["Yes","No⛔"]}
+      {id:"oi15_price",label:"Price 30-60m",opts:["Rising","Falling","Flat"]},
+      {id:"oi15_oi",label:"OI 30-60m",opts:["Growth","Flat","Spike"]}
     ]},
   { key:"funding", title:"4. FUNDING", color:"#f59e0b",
-    rules:"Extreme+OI flat=⛔ | Rising+price flat=⛔ | |F|>0.05% against=half risk | Spike/Flipping=⚠️",
+    rules:"|F|>0.1%+OI flat→No Trade | |F|>0.1%+OI confirms→↓risk | Rising 3++P flat→No Trade | Flipped+OI build→regime shift | Flipped+OI flat→noise | Never blocks alone, only reduces size",
     fields:[
-      {id:"ftrend",label:"Trend 8-48h",opts:["Stable","Rising⚠️","Extreme⛔","Flip⚠️"]},
-      {id:"fcheck",label:"Risk Adjust",opts:["OK","Half Risk","No Trade⛔"]}
-    ],
-    extra:"funding_rate"},
-  { key:"entry", title:"5. ENTRY SETUP", color:"#10b981",
-    rules:"Disp 15M ALL4: Body≥60%, Wick≤35%, Range≥1.2×ATR, Vol≥1.3×Avg | ATR Buffer: P>0.5×ATR from MO/WO/DO | Mid-Range=No Predictive | Monday: WO=DO=2/3",
-    fields:[
-      {id:"session",label:"Session",opts:["Breakout","Sweep","Mid-Range⛔"]},
-      {id:"trigger",label:"Trigger",opts:["BOS","Liq.Sweep"]},
-      {id:"disp",label:"Displacement",opts:[]},
-      {id:"confirm",label:"Confirm",opts:["Continuation","Acceptance","None"]},
-      {id:"atrbuf",label:"ATR Buffer",opts:["Yes","No⛔"]},
-      {id:"smt",label:"SMT",opts:["Yes","No","N/A"]}
+      {id:"f_level",label:"|Rate|",opts:["Extreme >0.1%"],optional:true},
+      {id:"f_trend",label:"Trend 8-48h",opts:["Stable","Rising 3+","Flipped"]},
+      {id:"f_price",label:"Price 8-48h",opts:["Rising","Falling","Flat"]},
+      {id:"f_oi",label:"OI 8-48h",opts:["Rising","Flat","Falling"]}
     ]},
-  { key:"trade", title:"6. TRADE & RISK", color:"#ef4444",
-    rules:"High: no blocks, core strong, HTF supports → 2%, RR 1:2-1:2.5, immediate OK | Standard: no blocks, 1+ reducing factor → 1%, RR 1:2, prefer retest | Low: blocked or weak → 0.5%, RR 1:2 | Max 1 concurrent BTC/ETH/SOL | Total<3%",
+  { key:"entry_perm", title:"5. PERMISSION", color:"#10b981",
+    rules:"Breakout→continuation | Sweep→reversal ONLY after disp+acceptance | Mid-Range→ONLY after disp+acceptance OUTSIDE",
     fields:[
-      {id:"conviction",label:"Conviction",opts:["High","Standard","Low"]},
-      {id:"direction",label:"Direction",opts:["Long","Short"]},
-      {id:"corrcheck",label:"Correlation",opts:["OK","Conflict⛔"]}
+      {id:"session",label:"Session",opts:["Breakout","Sweep","Mid-Range"]}
+    ]},
+  { key:"entry_trigger", title:"6. TRIGGER", color:"#059669",
+    rules:"BOS→hold above BOS/FVG/origin | Liq.Sweep→rejection+acceptance after sweep | Holds=immediate confirm | Retest OK=came back & held",
+    fields:[
+      {id:"trigger",label:"Trigger",opts:["BOS","Liq.Sweep"]},
+      {id:"confirm",label:"Confirm",opts:["Holds","Retest OK","Not yet"]}
+    ]},
+  { key:"entry_logic", title:"7. LOGIC", color:"#047857",
+    rules:"Disp 15M ALL4 | >0.5 ATR from MO/WO/DO | <1.2 ATR from disp origin | Immediate if disp+OI growth, else wait 1-3 candles",
+    fields:[
+      {id:"disp",label:"Displacement",opts:[]},
+      {id:"opens_dist",label:"MO/WO/DO >0.5ATR",opts:["Yes","Too Close⛔"]},
+      {id:"origin_dist",label:"Price <1.2 ATR",opts:["Yes","Too Far⛔"]}
+    ]},
+  { key:"trade", title:"8. ENTRY RULES", color:"#ef4444",
+    rules:"High: 2%, RR 1:2-1:2.5, immediate | Standard: 1%, RR 1:2, prefer retest | Low: 0.5%, RR 1:2 | Max 1 concurrent BTC/ETH/SOL | Total<3%",
+    fields:[
+      {id:"corrcheck",label:"BTC/ETH/SOL",opts:["No open trades","Conflict⛔"]}
     ],
     extra:"trade_nums"}
 ];
@@ -189,18 +194,192 @@ let dispState = {d_body:false, d_wick:false, d_range:false, d_vol:false};
 let rulesOpen = {};
 let postOpen = false;
  
+function computeTradeCall() {
+  const bias = state.bias;
+  if (!bias) return null;
+  if (bias === "Bullish") return "Long";
+  if (bias === "Bearish") return "Short";
+  if (bias === "Balanced") return "Both↓";
+  return null;
+}
+ 
+function computeDirection() {
+  const mode = computeMode();
+  const ms = computeMarketState();
+  const call = computeTradeCall();
+  
+  if (mode === "Continuation") {
+    if (ms === "Bullish") return "Long";
+    if (ms === "Bearish") return "Short";
+    if (call === "Long") return "Long";
+    if (call === "Short") return "Short";
+  }
+  if (mode === "Reversal") {
+    if (state.pricedir === "Down") return "Long";
+    if (state.pricedir === "Up") return "Short";
+  }
+  if (call === "Long") return "Long";
+  if (call === "Short") return "Short";
+  return null;
+}
+ 
+function computeRisk() {
+  const r = state.regime;
+  if (!r) return null;
+  if (r === "Trend 3/3") return "Max";
+  if (r === "Mod 2/3") return "Normal";
+  if (r === "Neutral") return "Low";
+  return null;
+}
+ 
+function computeConviction() {
+  const risk = computeRisk();
+  if (!risk) return { label: null, triggers: 0 };
+  
+  let triggers = 0;
+  
+  // HTF triggers
+  if (state.bias === "Balanced") triggers++;
+  if (state.liquidity === "Swept") triggers++;
+  if (state.barrier === "Yes↓") triggers++;
+  
+  // Market State triggers
+  const ms = computeMarketState();
+  if (ms === "L.Squeeze⛔") triggers++;
+  if (ms === "S.Squeeze⛔") triggers++;
+  if (ms === "Flat⛔") triggers++;
+  
+  // OI triggers
+  const oi15 = computeOI15M();
+  if (oi15 === "Flat↓") triggers++;
+  if (oi15 === "Spike⛔") triggers++;
+  if (oi15 === "Diverge⛔") triggers++;
+  if (oi15 === "Against↓") triggers++;
+  
+  // Permission triggers
+  if (state.session === "Mid-Range") triggers++;
+  if (state.session === "Sweep") triggers++;
+  
+  const level = 3 - triggers;
+  const label = level >= 3 ? "High" : level === 2 ? "Standard" : "Low";
+  return { label, triggers };
+}
+ 
+function computeFunding() {
+  const level = state.f_level;
+  const trend = state.f_trend;
+  const price = state.f_price;
+  const oi = state.f_oi;
+  if (!level && !trend) return null;
+  
+  // Extreme + OI
+  if (level === "Extreme >0.1%" && oi === "Flat") return "No Trade";
+  if (level === "Extreme >0.1%" && oi === "Falling") return "No Trade";
+  if (level === "Extreme >0.1%" && oi === "Rising") return "↓ Reduce Size";
+  if (level === "Extreme >0.1%") return "↓ Reduce Size";
+  
+  // Rising 3+ + price flat
+  if (trend === "Rising 3+" && price === "Flat") return "No Trade";
+  if (trend === "Rising 3+") return "Caution";
+  
+  // Flipped
+  if (trend === "Flipped" && oi === "Rising") return "Regime Shift ✅";
+  if (trend === "Flipped" && oi === "Flat") return "Noise — ignore";
+  if (trend === "Flipped") return "Watch";
+  
+  // Normal
+  return "OK";
+}
+ 
+function computeOI15M() {
+  const p = state.oi15_price;
+  const oi = state.oi15_oi;
+  if (!p || !oi) return null;
+  
+  if (oi === "Spike") return "Spike⛔";
+  if (oi === "Flat") return "Flat↓";
+  
+  // OI = Growth → check price alignment with Trade Call
+  if (oi === "Growth") {
+    if (p === "Flat") return "Diverge⛔";
+    const call = computeTradeCall();
+    if (call === "Long" && p === "Rising") return "Confirms✅";
+    if (call === "Long" && p === "Falling") return "Against↓";
+    if (call === "Short" && p === "Falling") return "Confirms✅";
+    if (call === "Short" && p === "Rising") return "Against↓";
+    if (call === "Both↓") return p === "Rising" ? "Bullish OI" : "Bearish OI";
+    // No Trade Call yet — show direction
+    return p === "Rising" ? "Bullish OI" : "Bearish OI";
+  }
+  return null;
+}
+ 
+function computeMarketState() {
+  const p = state.pricedir;
+  const oi = state.oidir;
+  if (!p || !oi) return null;
+  if (oi === "Flat") return "Flat⛔";
+  if (p === "Up" && oi === "Rising") return "Bullish";
+  if (p === "Down" && oi === "Rising") return "Bearish";
+  if (p === "Down" && oi === "Falling") return "L.Squeeze⛔";
+  if (p === "Up" && oi === "Falling") return "S.Squeeze⛔";
+  if (p === "Flat" && oi === "Rising") return "Absorption";
+  if (p === "Flat" && oi === "Falling") return "Flat⛔";
+  return null;
+}
+ 
+function computeMode() {
+  const regime = state.regime;
+  const liquidity = state.liquidity;
+  const mktState = computeMarketState();
+  const session = state.session;
+  const sqzResol = state.sqzresol;
+  
+  if (!regime) return null;
+  
+  // Squeeze with resolution overrides
+  if ((mktState === "L.Squeeze⛔" || mktState === "S.Squeeze⛔") && sqzResol) {
+    if (sqzResol === "HTF Sweep") return "Reversal";
+    if (sqzResol === "OI Stabilized 30-60m" || sqzResol === "New OI Build & Price Hold") return "Continuation";
+    if (sqzResol === "No Resolution 60-90m⛔") return "No Trade";
+  }
+  
+  // Squeeze without resolution
+  if (mktState === "L.Squeeze⛔" || mktState === "S.Squeeze⛔") return "No Trade";
+  
+  // Standard overrides
+  if (regime === "Neutral") return "Reversal";
+  if (session === "Sweep") return "Reversal";
+  if (liquidity === "Swept") return "Reversal";
+  if (computeOI15M() === "Flat↓") return "Reversal";
+  
+  return "Continuation";
+}
+ 
 function render() {
   const el = document.getElementById("checklist");
   let html = "";
-  const hasStop = Object.values(state).some(v => STOP.has(v));
+  const validFields = new Set(GROUPS.flatMap(g => g.fields.map(f => f.id)));
+  const hasManualStop = Object.entries(state).some(([k,v]) => validFields.has(k) && STOP.has(v));
+  const ms = computeMarketState();
+  const isSqueeze = ms && (ms === "L.Squeeze⛔" || ms === "S.Squeeze⛔");
+  const squeezeResolved = isSqueeze && state.sqzresol && !state.sqzresol.includes("⛔") && state.sqzresol !== "N/A";
+  const hasComputedStop = (ms && ms.includes("⛔") && !squeezeResolved);
+  const oi15 = computeOI15M();
+  const hasOIStop = oi15 && oi15.includes("⛔");
+  const hasStop = hasManualStop || hasComputedStop || hasOIStop;
   
   for (let i = 0; i < GROUPS.length; i++) {
     const g = GROUPS[i];
     const allFilled = g.fields.every(f => f.id === "disp" ? state.disp : state[f.id]);
     const groupStop = g.fields.some(f => STOP.has(state[f.id]));
-    const statusIcon = groupStop ? '<span class="status-icon" style="color:var(--red)">⛔</span>' : allFilled ? '<span class="status-icon" style="color:var(--green)">✓</span>' : '';
+    const computedStop = (g.key === "market" && computeMarketState() && computeMarketState().includes("⛔") && !(
+      (computeMarketState() === "L.Squeeze⛔" || computeMarketState() === "S.Squeeze⛔") && state.sqzresol && !state.sqzresol.includes("⛔") && state.sqzresol !== "N/A"
+    )) || (g.key === "oi" && computeOI15M() && computeOI15M().includes("⛔"));
+    const statusIcon = (groupStop || computedStop) ? '<span class="status-icon" style="color:var(--red)">⛔</span>' : allFilled ? '<span class="status-icon" style="color:var(--green)">✓</span>' : '';
     
     if (g.key === "market") html += '<div class="col-row">';
+    if (g.key === "entry_perm") html += '<div class="col-row">';
     
     html += `<div class="group" style="border-left:3px solid ${g.color}">`;
     html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}`;
@@ -231,10 +410,108 @@ function render() {
       html += `</div></div>`;
     }
     
-    if (g.extra === "funding_rate") {
-      html += `<div class="row"><span class="lbl">Rate %</span><input class="mini-input" id="inp_funding" oninput="saveInput(this)" placeholder="0.01"></div>`;
+    if (g.key === "funding") {
+      const fv = computeFunding();
+      const fvColor = fv === "OK" ? "var(--green)" : (fv && fv.includes("✅")) ? "var(--green)" : (fv === "No Trade") ? "var(--red)" : (fv && (fv.includes("↓") || fv === "Caution")) ? "var(--yellow, #ca8a04)" : "var(--muted)";
+      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
+      html += `<span style="font-size:11px;font-weight:600;color:${fvColor}">${fv||"—"}</span>`;
+      html += `</div>`;
+    }
+    if (g.key === "entry_perm") {
+      const s = state.session;
+      let perm = "—"; let permColor = "var(--muted)";
+      if (s === "Breakout") { perm = "Continuation allowed"; permColor = "var(--green)"; }
+      else if (s === "Sweep") { perm = "Reversal ONLY after disp+accept"; permColor = "var(--yellow, #ca8a04)"; }
+      else if (s === "Mid-Range") { perm = "After disp+accept OUTSIDE only"; permColor = "var(--red)"; }
+      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
+      html += `<span style="font-size:11px;font-weight:600;color:${permColor}">${perm}</span>`;
+      html += `</div>`;
+    }
+    if (g.key === "entry_logic") {
+      const dispOK = state.disp === "Pass✅";
+      let style = "—"; let styleColor = "var(--muted)";
+      if (dispOK) { style = "Displacement ✅"; styleColor = "var(--green)"; }
+      else if (state.disp === "Fail⛔") { style = "Displacement ❌"; styleColor = "var(--red)"; }
+      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
+      html += `<span style="font-size:11px;font-weight:600;color:${styleColor}">${style}</span>`;
+      html += `</div>`;
+    }
+    if (g.key === "oi") {
+      const oi15 = computeOI15M();
+      const oi15Color = (oi15 && oi15.includes("✅")) ? "var(--green)" : (oi15 && oi15.includes("↓")) ? "var(--yellow, #ca8a04)" : (oi15 && oi15.includes("⛔")) ? "var(--red)" : "var(--muted)";
+      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
+      html += `<span style="font-size:11px;font-weight:600;color:${oi15Color}">${oi15||"—"}</span>`;
+      html += `</div>`;
+    }
+    if (g.key === "htf") {
+      const call = computeTradeCall();
+      const callColor = call === "Long" ? "var(--green)" : call === "Short" ? "var(--red)" : "var(--muted)";
+      const risk = computeRisk();
+      const riskColor = risk === "Max" ? "var(--green)" : risk === "Normal" ? "var(--yellow, #ca8a04)" : risk === "Low" ? "var(--red)" : "var(--muted)";
+      // Local mode: only from Regime + Liquidity
+      let localMode = "—"; let lmColor = "var(--muted)";
+      if (state.regime === "Neutral") { localMode = "Reversal"; lmColor = "var(--red)"; }
+      else if (state.liquidity === "Swept") { localMode = "Reversal"; lmColor = "var(--red)"; }
+      else if (state.regime) { localMode = "Continuation"; lmColor = "var(--green)"; }
+      // Local triggers
+      const htfTriggers = [state.bias==="Balanced"?"Balanced":null, state.liquidity==="Swept"?"Swept":null, state.barrier==="Yes↓"?"Barrier":null].filter(Boolean);
+      const trigLabel = htfTriggers.length ? "↓" + htfTriggers.join(", ") : "";
+      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
+      html += `<span class="lbl">Call</span><span style="font-size:13px;font-weight:700;color:${callColor}">${call||"—"}</span>`;
+      html += `<span class="lbl" style="margin-left:10px">Risk</span><span style="font-size:13px;font-weight:700;color:${riskColor}">${risk||"—"}</span>`;
+      html += `<span class="lbl" style="margin-left:10px">Mode</span><span style="font-size:13px;font-weight:700;color:${lmColor}">${localMode}</span>`;
+      if (trigLabel) html += `<span style="font-size:10px;color:var(--red);margin-left:10px">${trigLabel}</span>`;
+      html += `</div>`;
+    }
+    if (g.key === "market") {
+      const ms = computeMarketState();
+      const isSqueeze = ms && (ms === "L.Squeeze⛔" || ms === "S.Squeeze⛔");
+      const msStop = ms && ms.includes("⛔");
+      const sqz = state.sqzresol;
+      const sqzResolved = isSqueeze && sqz && !sqz.includes("⛔") && sqz !== "N/A";
+      const msColor = ms === "Bullish" ? "var(--green)" : ms === "Bearish" ? "var(--red)" : msStop ? "var(--red)" : "var(--muted)";
+      let stateLabel = ms || "—";
+      if (isSqueeze && sqzResolved) stateLabel = ms.replace("⛔","") + " → " + sqz;
+      if (isSqueeze) {
+        const sqzOpts = ["OI Stabilized 30-60m","New OI Build & Price Hold","HTF Sweep","No Resolution 60-90m⛔"];
+        html += `<div class="row"><span class="lbl">Resolution</span><div class="pills">`;
+        for (const o of sqzOpts) {
+          const sel = state.sqzresol === o;
+          const isStop = o.includes("⛔");
+          const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
+          html += `<button class="${cls}" onclick="pick('sqzresol','${o}')">${o}</button>`;
+        }
+        html += `</div></div>`;
+      }
+      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
+      html += `<span style="font-size:13px;font-weight:700;color:${msColor}">${stateLabel}</span>`;
+      html += `</div>`;
     }
     if (g.extra === "trade_nums") {
+      // SECTION 8: AGGREGATOR — all sections combined
+      const dir = computeDirection();
+      const dirColor = dir === "Long" ? "var(--green)" : dir === "Short" ? "var(--red)" : "var(--muted)";
+      const {label: convLabel, triggers: convTriggers} = computeConviction();
+      const convColor = convLabel === "High" ? "var(--green)" : convLabel === "Standard" ? "var(--yellow, #ca8a04)" : convLabel === "Low" ? "var(--red)" : "var(--muted)";
+      const convText = convLabel ? `${convLabel} (-${convTriggers})` : "—";
+      const mode = computeMode();
+      const mColor = mode === "Continuation" ? "var(--green)" : mode === "Reversal" ? "var(--red)" : mode === "No Trade" ? "var(--red)" : "var(--muted)";
+      const riskPct = convLabel === "High" ? "2%" : convLabel === "Standard" ? "1%" : convLabel === "Low" ? "0.5%" : "—";
+      const rrTarget = convLabel === "High" ? "1:2 – 1:2.5" : "1:2";
+      // Entry style from Logic
+      const dispOK = state.disp === "Pass✅";
+      const oiGrowth = computeOI15M() === "Confirms✅";
+      const entryStyle = dispOK && oiGrowth ? "Immediate" : dispOK ? "Wait retest" : "—";
+      const esColor = entryStyle === "Immediate" ? "var(--green)" : entryStyle === "Wait retest" ? "var(--yellow, #ca8a04)" : "var(--muted)";
+      
+      html += `<div class="row" style="margin-bottom:6px">`;
+      html += `<span class="lbl">Dir</span><span style="font-size:15px;font-weight:800;color:${dirColor}">${dir||"—"}</span>`;
+      html += `<span class="lbl" style="margin-left:10px">Conv</span><span style="font-size:15px;font-weight:800;color:${convColor}">${convText}</span>`;
+      html += `<span class="lbl" style="margin-left:10px">Mode</span><span style="font-size:13px;font-weight:700;color:${mColor}">${mode||"—"}</span>`;
+      html += `<span class="lbl" style="margin-left:10px">Risk</span><span style="font-size:13px;font-weight:700">${riskPct}</span>`;
+      html += `<span class="lbl" style="margin-left:10px">RR</span><span style="font-size:13px;font-weight:700">${rrTarget}</span>`;
+      html += `<span class="lbl" style="margin-left:10px">Entry</span><span style="font-size:13px;font-weight:700;color:${esColor}">${entryStyle}</span>`;
+      html += `</div>`;
       html += `<div class="row" style="margin-top:2px">`;
       html += `<span class="lbl">Risk %</span><input class="mini-input w48" id="inp_risk" oninput="saveInput(this)">`;
       html += `<span class="lbl">Entry</span><input class="mini-input" id="inp_entry" oninput="saveInput(this)">`;
@@ -245,9 +522,20 @@ function render() {
       html += `<span class="lbl">TP3</span><input class="mini-input" id="inp_tp3" oninput="saveInput(this)">`;
       html += `<span class="lbl">RR</span><input class="mini-input w48" id="inp_rr" oninput="saveInput(this)">`;
       html += `</div>`;
+      // Verdict inside section 8
+      let s8verdict = ""; let s8color = "var(--muted)";
+      if (hasStop) { s8verdict = "🔴 NO TRADE"; s8color = "var(--red)"; }
+      else if (convTriggers >= 3) { s8verdict = "🔴 TOO MANY RISKS (-" + convTriggers + ")"; s8color = "var(--red)"; }
+      else if (state.confirm === "Not yet") { s8verdict = "🟡 WAIT CONFIRM"; s8color = "var(--yellow, #ca8a04)"; }
+      else if (GROUPS.every(g => g.fields.every(f => f.optional || (f.id === "disp" ? state.disp : state[f.id])))) { s8verdict = "🟢 TRADE"; s8color = "var(--green)"; }
+      else { s8verdict = "⚪ Fill all sections"; s8color = "var(--muted)"; }
+      html += `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);text-align:center">`;
+      html += `<span style="font-size:16px;font-weight:800;letter-spacing:0.1em;color:${s8color}">${s8verdict}</span>`;
+      html += `</div>`;
     }
     html += `</div>`;
     if (g.key === "funding") html += '</div>';
+    if (g.key === "entry_logic") html += '</div>';
   }
   el.innerHTML = html;
   
@@ -259,8 +547,13 @@ function render() {
   
   // verdict
   const vEl = document.getElementById("verdict");
-  const allGroupsFilled = GROUPS.every(g => g.fields.every(f => f.id === "disp" ? state.disp : state[f.id]));
+  const allGroupsFilled = GROUPS.every(g => g.fields.every(f => f.optional || (f.id === "disp" ? state.disp : state[f.id])));
+  const notConfirmed = state.confirm === "Not yet";
+  const {triggers: convTrig} = computeConviction();
+  const tooManyTriggers = convTrig >= 3;
   if (hasStop) vEl.innerHTML = '<span class="verdict-label verdict-notrade">🔴 NO TRADE</span>';
+  else if (tooManyTriggers) vEl.innerHTML = '<span class="verdict-label verdict-notrade">🔴 TOO MANY RISKS (-' + convTrig + ')</span>';
+  else if (notConfirmed) vEl.innerHTML = '<span class="verdict-label" style="color:var(--yellow,#ca8a04)">🟡 WAIT CONFIRM</span>';
   else if (allGroupsFilled) vEl.innerHTML = '<span class="verdict-label verdict-trade">🟢 TRADE</span>';
   else vEl.innerHTML = '';
 }
@@ -317,7 +610,7 @@ function saveInput(el) {
  
 function resetAll() {
   state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false};
-  ['state','disp','funding','risk','entry','stop','tp1','tp2','tp3','rr','notes','screenshot'].forEach(k => localStorage.removeItem('tc_'+k));
+  ['state','disp','risk','entry','stop','tp1','tp2','tp3','rr','notes','screenshot'].forEach(k => localStorage.removeItem('tc_'+k));
   localStorage.removeItem('tc_state');
   document.getElementById("notes").value = "";
   document.getElementById("screenshot").value = "";
@@ -341,24 +634,23 @@ function saveCfg() {
 const FIELD_MAP = {
   bias:["HTF Bias",{Bullish:"Bullish",Bearish:"Bearish",Balanced:"Balanced"}],
   regime:["Day Regime",{"Trend 3/3":"Trend 3/3","Mod 2/3":"Moderate 2/3",Neutral:"Neutral"}],
-  state:["Market State",{Bullish:"Bullish",Bearish:"Bearish","L.Squeeze":"Long Squeeze","S.Squeeze⛔":"Short Squeeze","Flat⛔":"Flat"}],
-  oiconfirm:["OI Confirm",{Yes:"Yes","No⛔":"No"}],
-  fcheck:["Funding Check",{OK:"OK","Half Risk":"Half Risk","No Trade⛔":"No Trade"}],
   disp:["Displacement",{"Pass✅":"Pass","Fail⛔":"Fail"}],
   trigger:["Trigger",{BOS:"BOS","Liq.Sweep":"Liquidity Sweep"}],
-  confirm:["Confirmation",{Continuation:"Continuation",Acceptance:"Acceptance",None:"None"}],
-  smt:["SMT",{Yes:"Yes",No:"No","N/A":"N/A"}],
-  session:["Session",{Breakout:"Breakout",Sweep:"Sweep","Mid-Range⛔":"Mid-Range"}],
-  conviction:["Conviction",{High:"High",Standard:"Standard",Low:"Low"}],
-  direction:["Direction",{Long:"Long",Short:"Short"}],
-  htf_call:["",null],
-  htf_mode:["",null],
+  confirm:["Confirmation",{Holds:"Continuation","Retest OK":"Acceptance","Not yet":"None"}],
+  session:["Session",{Breakout:"Breakout",Sweep:"Sweep","Mid-Range":"Mid-Range"}],
+  pricedir:["",null],
+  sqzresol:["",null],
   liquidity:["",null],
   barrier:["",null],
   oidir:["",null],
-  oibehav:["",null],
-  ftrend:["",null],
-  atrbuf:["",null],
+  oi15_price:["",null],
+  oi15_oi:["",null],
+  f_level:["",null],
+  f_trend:["",null],
+  f_price:["",null],
+  f_oi:["",null],
+  opens_dist:["",null],
+  origin_dist:["",null],
   corrcheck:["",null]
 };
  
@@ -380,9 +672,9 @@ async function saveToNotion() {
   const props = {};
   // Title
   const asset = state.asset || "";
-  const dir = state.direction || "";
+  const titleDir = computeDirection() || "";
   const dt = new Date().toISOString().slice(0,10);
-  props["Trade"] = `${dt} ${asset} ${dir}`.trim();
+  props["Trade"] = `${dt} ${asset} ${titleDir}`.trim();
   // Date
   props["date:Date:start"] = new Date().toISOString();
   props["date:Date:is_datetime"] = 1;
@@ -397,8 +689,29 @@ async function saveToNotion() {
     if (mapped) props[prop] = mapped;
   }
  
+  // Computed fields
+  const ms = computeMarketState();
+  if (ms) {
+    const msMap = {Bullish:"Bullish",Bearish:"Bearish","L.Squeeze⛔":"Long Squeeze","S.Squeeze⛔":"Short Squeeze","Flat⛔":"Flat",Absorption:"Flat"};
+    if (msMap[ms]) props["Market State"] = msMap[ms];
+  }
+  const oi15 = computeOI15M();
+  if (oi15) {
+    const oiMap = {"Confirms✅":"Yes","Against↓":"No","Flat↓":"Flat 3H+","Spike⛔":"No","Diverge⛔":"No"};
+    if (oiMap[oi15]) props["OI Confirm"] = oiMap[oi15];
+  }
+  const fvSave = computeFunding();
+  if (fvSave) {
+    const fMap = {"OK":"OK","↓ Reduce Size":"Half Risk","Caution":"Half Risk","No Trade":"No Trade","Regime Shift ✅":"OK","Noise — ignore":"OK","Watch":"OK"};
+    if (fMap[fvSave]) props["Funding Check"] = fMap[fvSave];
+  }
+  const dir = computeDirection();
+  if (dir) props["Direction"] = dir;
+  const {label: convSave} = computeConviction();
+  if (convSave) props["Conviction"] = convSave;
+ 
   // Numbers
-  const numMap = {risk:"Risk %", entry:"Entry Price", stop:"Stop Price", tp1:"TP1", tp2:"TP2", tp3:"TP3", funding:"Funding at Entry"};
+  const numMap = {risk:"Risk %", entry:"Entry Price", stop:"Stop Price", tp1:"TP1", tp2:"TP2", tp3:"TP3"};
   for (const [k, prop] of Object.entries(numMap)) {
     const v = localStorage.getItem("tc_"+k);
     if (v && !isNaN(parseFloat(v))) props[prop] = parseFloat(v);

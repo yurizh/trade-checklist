@@ -63,6 +63,12 @@
   .closed-row.header { color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
   .closed-row.win { background: var(--green-bg); }
   .closed-row.loss { background: var(--red-bg); }
+  .close-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+  .close-inp { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--fg); padding: 4px 8px; font-size: 12px; font-family: inherit; width: 100px; }
+  .close-sel { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--fg); padding: 4px 6px; font-size: 11px; font-family: inherit; }
+  .close-btn { font-size: 11px; font-family: inherit; color: #fff; background: var(--red); border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer; font-weight: 700; }
+  .close-btn:hover { opacity: 0.8; }
+  .close-msg { font-size: 11px; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -122,6 +128,14 @@ async function loadTrades() {
         '<div class="card-grid"><div><div class="card-label">Entry</div><div class="card-val">'+(entry!=null?entry:"—")+'</div></div><div><div class="card-label">Stop</div><div class="card-val" style="color:var(--red)">'+(stop!=null?stop:"—")+'</div></div><div><div class="card-label">Risk</div><div class="card-val">'+(t["Risk %"]!=null?t["Risk %"]+"%":"—")+'</div></div></div>' +
         '<div class="card-targets">'+(t.TP1?'<div><span class="tp-label">TP1</span> <span class="tp-val">'+t.TP1+'</span>'+rr(t.TP1)+'</div>':'')+(t.TP2?'<div><span class="tp-label">TP2</span> <span class="tp-val">'+t.TP2+'</span>'+rr(t.TP2)+'</div>':'')+(t.TP3?'<div><span class="tp-label">TP3</span> <span class="tp-val">'+t.TP3+'</span>'+rr(t.TP3)+'</div>':'')+'</div>' +
         (tags.length?'<div class="card-ctx">'+tags.map(c=>'<span class="ctx-tag">'+c+'</span>').join("")+'</div>':'') +
+        '<div class="close-row">' +
+          '<span style="font-size:10px;color:var(--muted)">CLOSE:</span>' +
+          '<input class="close-inp" id="exit_'+t.id+'" placeholder="Exit Price" type="number">' +
+          '<select class="close-sel" id="reason_'+t.id+'"><option value="">Reason</option><option>TP1</option><option>TP2</option><option>TP3</option><option>Stop</option><option>Time Stop</option><option>Manual</option><option>BE</option></select>' +
+          '<input class="close-inp" id="lesson_'+t.id+'" placeholder="Lessons" style="width:150px">' +
+          '<button class="close-btn" onclick="closeTrade(\''+t.id+'\')">Close Trade</button>' +
+          '<span class="close-msg" id="msg_'+t.id+'"></span>' +
+        '</div>' +
       '</div>';
     }).join(""); }
     // Results section
@@ -159,9 +173,28 @@ function renderResults(all, closed) {
   }
   document.getElementById("results").innerHTML = html;
 }
+async function closeTrade(pageId) {
+  const exitPrice = parseFloat(document.getElementById("exit_"+pageId)?.value);
+  const reason = document.getElementById("reason_"+pageId)?.value;
+  const lesson = document.getElementById("lesson_"+pageId)?.value || "";
+  const msgEl = document.getElementById("msg_"+pageId);
+  if (!exitPrice || isNaN(exitPrice)) { msgEl.textContent = "Enter Exit Price"; msgEl.style.color = "var(--red)"; return; }
+  if (!reason) { msgEl.textContent = "Select Reason"; msgEl.style.color = "var(--red)"; return; }
+  const worker = localStorage.getItem("tc_worker");
+  const token = localStorage.getItem("tc_token");
+  msgEl.textContent = "Saving..."; msgEl.style.color = "var(--muted)";
+  try {
+    const props = { "Exit Price": exitPrice, "Exit Reason": reason };
+    if (lesson) props["Lessons"] = lesson;
+    const resp = await fetch(worker, { method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ action: "update", token, page_id: pageId, properties: props }) });
+    const data = await resp.json();
+    if (data.message) { msgEl.textContent = data.message; msgEl.style.color = "var(--red)"; }
+    else { msgEl.textContent = "✅ Closed!"; msgEl.style.color = "var(--green)"; setTimeout(loadTrades, 1500); }
+  } catch(e) { msgEl.textContent = e.message; msgEl.style.color = "var(--red)"; }
+}
 loadTrades();
 setInterval(loadTrades, 300000);
 </script>
 </body>
 </html>
- 

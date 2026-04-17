@@ -697,7 +697,7 @@ async function saveToNotion() {
   }
   const oi15 = computeOI15M();
   if (oi15) {
-    const oiMap = {"Confirms✅":"Yes","Against↓":"No","Flat↓":"Flat 3H+","Spike⛔":"No","Diverge⛔":"No"};
+    const oiMap = {"Confirms✅":"Confirms","Against↓":"Against","Flat↓":"Flat","Spike⛔":"Spike","Diverge⛔":"Diverge"};
     if (oiMap[oi15]) props["OI Confirm"] = oiMap[oi15];
   }
   const fvSave = computeFunding();
@@ -707,8 +707,14 @@ async function saveToNotion() {
   }
   const dir = computeDirection();
   if (dir) props["Direction"] = dir;
-  const {label: convSave} = computeConviction();
+  const {label: convSave, triggers: trigSave} = computeConviction();
   if (convSave) props["Conviction"] = convSave;
+  props["Conv Triggers"] = trigSave;
+  // New fields
+  if (state.liquidity) props["HTF Liquidity"] = state.liquidity;
+  if (state.barrier) { props["HTF Barrier"] = state.barrier === "Yes↓" ? "Yes" : "No"; }
+  const modeSave = computeMode();
+  if (modeSave) props["Trade Mode"] = modeSave;
  
   // Numbers
   const numMap = {risk:"Risk %", entry:"Entry Price", stop:"Stop Price", tp1:"TP1", tp2:"TP2", tp3:"TP3"};

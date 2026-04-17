@@ -513,6 +513,7 @@ function render() {
       html += `<span class="lbl" style="margin-left:10px">Entry</span><span style="font-size:13px;font-weight:700;color:${esColor}">${entryStyle}</span>`;
       html += `</div>`;
       html += `<div class="row" style="margin-top:2px">`;
+      html += `<span class="lbl">Account $</span><input class="mini-input" id="inp_account" oninput="saveInput(this)">`;
       html += `<span class="lbl">Risk %</span><input class="mini-input w48" id="inp_risk" oninput="saveInput(this)">`;
       html += `<span class="lbl">Entry</span><input class="mini-input" id="inp_entry" oninput="saveInput(this);renderRR()">`;
       html += `<span class="lbl">Stop</span><input class="mini-input" id="inp_stop" oninput="saveInput(this);renderRR()">`;
@@ -630,7 +631,7 @@ function renderRR() {
  
 function resetAll() {
   state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false};
-  ['state','disp','risk','entry','stop','tp1','tp2','tp3','rr','notes','screenshot'].forEach(k => localStorage.removeItem('tc_'+k));
+  ['state','disp','risk','entry','stop','tp1','tp2','tp3','rr','notes','screenshot','account'].forEach(k => localStorage.removeItem('tc_'+k));
   localStorage.removeItem('tc_state');
   document.getElementById("notes").value = "";
   document.getElementById("screenshot").value = "";
@@ -736,7 +737,7 @@ async function saveToNotion() {
   if (modeSave) props["Trade Mode"] = modeSave;
  
   // Numbers
-  const numMap = {risk:"Risk %", entry:"Entry Price", stop:"Stop Price", tp1:"TP1", tp2:"TP2", tp3:"TP3"};
+  const numMap = {account:"Account $", risk:"Risk %", entry:"Entry Price", stop:"Stop Price", tp1:"TP1", tp2:"TP2", tp3:"TP3"};
   for (const [k, prop] of Object.entries(numMap)) {
     const v = localStorage.getItem("tc_"+k);
     if (v && !isNaN(parseFloat(v))) props[prop] = parseFloat(v);

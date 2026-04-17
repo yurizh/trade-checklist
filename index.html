@@ -514,13 +514,12 @@ function render() {
       html += `</div>`;
       html += `<div class="row" style="margin-top:2px">`;
       html += `<span class="lbl">Risk %</span><input class="mini-input w48" id="inp_risk" oninput="saveInput(this)">`;
-      html += `<span class="lbl">Entry</span><input class="mini-input" id="inp_entry" oninput="saveInput(this)">`;
-      html += `<span class="lbl">Stop</span><input class="mini-input" id="inp_stop" oninput="saveInput(this)">`;
+      html += `<span class="lbl">Entry</span><input class="mini-input" id="inp_entry" oninput="saveInput(this);renderRR()">`;
+      html += `<span class="lbl">Stop</span><input class="mini-input" id="inp_stop" oninput="saveInput(this);renderRR()">`;
       html += `</div><div class="row">`;
-      html += `<span class="lbl">TP1</span><input class="mini-input" id="inp_tp1" oninput="saveInput(this)">`;
-      html += `<span class="lbl">TP2</span><input class="mini-input" id="inp_tp2" oninput="saveInput(this)">`;
-      html += `<span class="lbl">TP3</span><input class="mini-input" id="inp_tp3" oninput="saveInput(this)">`;
-      html += `<span class="lbl">RR</span><input class="mini-input w48" id="inp_rr" oninput="saveInput(this)">`;
+      html += `<span class="lbl">TP1</span><input class="mini-input" id="inp_tp1" oninput="saveInput(this);renderRR()"><span id="rr1" style="font-size:11px;font-weight:600;color:var(--muted);margin-left:2px"></span>`;
+      html += `<span class="lbl">TP2</span><input class="mini-input" id="inp_tp2" oninput="saveInput(this);renderRR()"><span id="rr2" style="font-size:11px;font-weight:600;color:var(--muted);margin-left:2px"></span>`;
+      html += `<span class="lbl">TP3</span><input class="mini-input" id="inp_tp3" oninput="saveInput(this);renderRR()"><span id="rr3" style="font-size:11px;font-weight:600;color:var(--muted);margin-left:2px"></span>`;
       html += `</div>`;
       // Verdict inside section 8
       let s8verdict = ""; let s8color = "var(--muted)";
@@ -606,6 +605,27 @@ function togglePost() {
 function saveInput(el) {
   const k = el.id.replace('inp_','');
   localStorage.setItem('tc_'+k, el.value);
+}
+ 
+function renderRR() {
+  const entry = parseFloat(document.getElementById("inp_entry")?.value);
+  const stop = parseFloat(document.getElementById("inp_stop")?.value);
+  const tps = [
+    {el: document.getElementById("rr1"), val: parseFloat(document.getElementById("inp_tp1")?.value)},
+    {el: document.getElementById("rr2"), val: parseFloat(document.getElementById("inp_tp2")?.value)},
+    {el: document.getElementById("rr3"), val: parseFloat(document.getElementById("inp_tp3")?.value)}
+  ];
+  const risk = (entry && stop && entry !== stop) ? Math.abs(entry - stop) : 0;
+  const rrTexts = [];
+  for (const tp of tps) {
+    if (!tp.el) continue;
+    if (!risk || !tp.val) { tp.el.textContent = ""; continue; }
+    const rr = (Math.abs(tp.val - entry) / risk).toFixed(1);
+    tp.el.textContent = "1:" + rr;
+    tp.el.style.color = parseFloat(rr) >= 2 ? "var(--green)" : parseFloat(rr) >= 1 ? "var(--yellow, #ca8a04)" : "var(--red)";
+    rrTexts.push("1:" + rr);
+  }
+  localStorage.setItem('tc_rr', rrTexts.join(" / "));
 }
  
 function resetAll() {
@@ -762,6 +782,7 @@ renderTopPills();
 // Restore notes & screenshot
 if (localStorage.getItem('tc_notes')) document.getElementById('notes').value = localStorage.getItem('tc_notes');
 if (localStorage.getItem('tc_screenshot')) document.getElementById('screenshot').value = localStorage.getItem('tc_screenshot');
+renderRR();
 </script>
 </body>
 </html>

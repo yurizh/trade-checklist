@@ -690,7 +690,6 @@ async function skipToNotion() {
   const worker = localStorage.getItem("tc_worker");
   const token = localStorage.getItem("tc_token");
   if (!worker || !token) { toggleSettings(); showStatus("⚠️ Set Worker URL and Notion Token first", false); return; }
-  const skipReason = "";
   
   const asset = state.asset || "";
   const titleDir = computeDirection() || "";
@@ -701,7 +700,7 @@ async function skipToNotion() {
   props["date:Date:is_datetime"] = 1;
   if (state.asset) props["Asset"] = state.asset;
   props["Mode"] = "Skipped";
-  props["Skip Reason"] = skipReason;
+  // Skip Reason not set — field left empty in Notion
  
   // Map checklist fields same as save
   for (const [k, [prop, map]] of Object.entries(FIELD_MAP)) {

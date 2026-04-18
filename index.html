@@ -699,7 +699,7 @@ async function skipToNotion() {
   props["date:Date:start"] = new Date().toISOString();
   props["date:Date:is_datetime"] = 1;
   if (state.asset) props["Asset"] = state.asset;
-  props["Mode"] = "Skipped";
+  props["Skipped"] = true;
   // Skip Reason not set — field left empty in Notion
  
   // Map checklist fields same as save

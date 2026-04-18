@@ -52,6 +52,15 @@
   .pill:hover { border-color: var(--muted); color: var(--fg); }
   .pill.sel { border-color: var(--green); background: var(--green-bg); color: var(--green-text); font-weight: 600; }
   .pill.sel-stop { border-color: var(--red); background: var(--red-bg); color: var(--red-text); font-weight: 600; }
+  .pill:disabled { opacity: 0.3; cursor: not-allowed; }
+  .pill:disabled:hover { border-color: var(--border); color: var(--muted); }
+  .field-disabled { opacity: 0.5; }
+  
+  /* Custom tooltip */
+  .tip { position: relative; cursor: help; border-bottom: 1px dotted var(--muted); }
+  .tip:hover .tip-box { display: block; }
+  .tip-box { display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; background: #1a1a1a; color: #e5e5e5; border: 1px solid #444; border-radius: 6px; padding: 8px 12px; font-size: 10px; line-height: 1.5; white-space: pre-line; z-index: 100; min-width: 240px; max-width: 380px; box-shadow: 0 4px 16px rgba(0,0,0,0.5); font-family: 'JetBrains Mono', monospace; letter-spacing: 0; }
+  .tip-box strong { color: #fbbf24; }
  
   .disp-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   .disp-check { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 13px; color: var(--muted); }
@@ -135,12 +144,18 @@ const STOP = new Set(["S.Squeeze⛔","Flat⛔","Diverge⛔","Extreme⛔","No Tra
  
 const GROUPS = [
   { key:"htf", title:"1. HTF CONTEXT", color:"#3b82f6",
-    rules:"Bias defines direction | Regime restricts risk & mode | Liquidity & Barrier impact conviction | Lower conviction: Max→Normal→Low (triggers: Balanced, Swept, Barrier=Yes)",
+    rules:"Weekly Bias = primary (Direction) | Daily Bias = modifier (conviction) | Liquidity Draw + Recently Swept → Phase (Accumulation/Post-sweep/Transition) | Barrier in direction blocks/lowers conviction (HTF FVG=no impact) | Regime restricts risk | Draw Level Minor = -1 conv | Near HTF Extreme enables Reversal when Bias≠MS",
     fields:[
-      {id:"bias",label:"Bias",opts:["Bullish","Bearish","Balanced"]},
-      {id:"liquidity",label:"Liquidity",opts:["Above","Below","Swept"]},
-      {id:"barrier",label:"Barrier",opts:["No","Yes↓"]},
-      {id:"regime",label:"Regime",opts:["Trend 3/3","Mod 2/3","Neutral"]}
+      {id:"weekly_bias",label:"Weekly Bias",opts:["Bullish","Bearish","Balanced"]},
+      {id:"daily_bias",label:"Daily Bias",opts:["Bullish","Bearish","Balanced"]},
+      {id:"regime",label:"Regime",opts:["Trend 3/3","Mod 2/3","Neutral"]},
+      {id:"liq_draw",label:"Liq. Draw",opts:["Above","Below","Both"]},
+      {id:"swept",label:"Recently Swept",opts:["Above","Below","Both"],optional:true},
+      {id:"barrier_above",label:"Barrier Above",opts:["HTF FVG","Wick SNR","OB"],optional:true,multi:true},
+      {id:"barrier_below",label:"Barrier Below",opts:["HTF FVG","Wick SNR","OB"],optional:true,multi:true},
+      {id:"extreme",label:"Near HTF Extreme",opts:["PDH","PDL","EQH","EQL","WO","HTF Swing"],optional:true,multi:true},
+      {id:"draw_level_above",label:"Draw Level Above",opts:["Major","Medium","Minor"],optional:true},
+      {id:"draw_level_below",label:"Draw Level Below",opts:["Major","Medium","Minor"],optional:true}
     ]},
   { key:"market", title:"2. MARKET STATE", color:"#8b5cf6",
     rules:"Bullish=P↑+OI↑ | Bearish=P↓+OI↑ | Squeeze=OI↓→⛔ wait resolution | Flat=OI flat→⛔",
@@ -196,12 +211,39 @@ let rulesOpen = {};
 let postOpen = false;
  
 function computeTradeCall() {
-  const bias = state.bias;
+  const bias = state.weekly_bias;
   if (!bias) return null;
   if (bias === "Bullish") return "Long";
   if (bias === "Bearish") return "Short";
   if (bias === "Balanced") return "Both↓";
   return null;
+}
+ 
+function barrierStrength(arr) {
+  if (!Array.isArray(arr) || !arr.length) return 0;
+  const hasOB = arr.includes("OB");
+  const hasWick = arr.includes("Wick SNR");
+  if (hasOB && hasWick) return 2;
+  if (hasOB || hasWick) return 1;
+  return 0;
+}
+ 
+function computeLiquidityPhase() {
+  const draw = state.liq_draw;
+  const swept = state.swept;
+  if (!draw) return null;
+  
+  // No swept selected → Accumulation
+  if (!swept) return "Accumulation";
+  
+  // Transition: swept both sides
+  if (swept === "Both") return "Transition⛔";
+  
+  // Post-sweep: draw same direction as recent sweep (target liquidity already taken)
+  if ((draw === "Above" && swept === "Above") || (draw === "Below" && swept === "Below")) return "Post-sweep↓";
+  
+  // Draw opposite to swept = accumulation-like
+  return "Accumulation";
 }
  
 function computeDirection() {
@@ -239,10 +281,25 @@ function computeConviction() {
   
   let triggers = 0;
   
-  // HTF triggers
-  if (state.bias === "Balanced") triggers++;
-  if (state.liquidity === "Swept") triggers++;
-  if (state.barrier === "Yes↓") triggers++;
+  // HTF triggers (new structure)
+  if (state.weekly_bias === "Balanced") triggers++;
+  if (state.daily_bias && state.weekly_bias && state.daily_bias !== state.weekly_bias) triggers++;
+  // Draw Level trigger — check level in trade direction AND if draw includes that side
+  const dirForDraw = computeTradeCall();
+  const drawIncludesAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
+  const drawIncludesBelow = state.liq_draw === "Below" || state.liq_draw === "Both";
+  if (dirForDraw === "Long" && drawIncludesAbove && state.draw_level_above === "Minor") triggers++;
+  else if (dirForDraw === "Short" && drawIncludesBelow && state.draw_level_below === "Minor") triggers++;
+  const phase = computeLiquidityPhase();
+  if (phase === "Post-sweep↓") triggers++;
+  
+  // Barrier in direction of trade (multi-select)
+  const dir = computeTradeCall();
+  if (dir === "Long") triggers += barrierStrength(state.barrier_above);
+  else if (dir === "Short") triggers += barrierStrength(state.barrier_below);
+  
+  // Regime trigger
+  if (state.regime === "Mod 2/3") triggers++;
   
   // Market State triggers
   const ms = computeMarketState();
@@ -331,12 +388,16 @@ function computeMarketState() {
  
 function computeMode() {
   const regime = state.regime;
-  const liquidity = state.liquidity;
+  const phase = computeLiquidityPhase();
+  const swept = state.swept;
   const mktState = computeMarketState();
   const session = state.session;
   const sqzResol = state.sqzresol;
   
   if (!regime) return null;
+  
+  // Liquidity Phase = Transition → No Trade
+  if (phase === "Transition⛔") return "No Trade";
   
   // Squeeze with resolution overrides
   if ((mktState === "L.Squeeze⛔" || mktState === "S.Squeeze⛔") && sqzResol) {
@@ -351,7 +412,7 @@ function computeMode() {
   // Standard overrides
   if (regime === "Neutral") return "Reversal";
   if (session === "Sweep") return "Reversal";
-  if (liquidity === "Swept") return "Reversal";
+  if (swept === "Above" || swept === "Below") return "Reversal";
   if (computeOI15M() === "Flat↓") return "Reversal";
   
   return "Continuation";
@@ -372,7 +433,7 @@ function render() {
   
   for (let i = 0; i < GROUPS.length; i++) {
     const g = GROUPS[i];
-    const allFilled = g.fields.every(f => f.id === "disp" ? state.disp : state[f.id]);
+    const allFilled = g.fields.every(f => f.optional || (f.id === "disp" ? state.disp : state[f.id]));
     const groupStop = g.fields.some(f => STOP.has(state[f.id]));
     const computedStop = (g.key === "market" && computeMarketState() && computeMarketState().includes("⛔") && !(
       (computeMarketState() === "L.Squeeze⛔" || computeMarketState() === "S.Squeeze⛔") && state.sqzresol && !state.sqzresol.includes("⛔") && state.sqzresol !== "N/A"
@@ -387,7 +448,7 @@ function render() {
     html += `<button class="rules-btn" onclick="toggleRules('${g.key}')">${rulesOpen[g.key] ? '▼rules' : '▶rules'}</button></div>`;
     if (rulesOpen[g.key]) html += `<div class="rules-text">${g.rules}</div>`;
     
-    if (g.key === "htf") html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">`;
+    if (g.key === "htf") html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;grid-auto-flow:row dense">`;
     for (const f of g.fields) {
       if (f.id === "disp") {
         html += `<div class="row"><span class="lbl">${f.label}</span><div class="disp-row">`;
@@ -402,12 +463,53 @@ function render() {
         html += `</div></div>`;
         continue;
       }
-      html += `<div><div class="row" style="margin-bottom:2px"><span class="lbl">${f.label}</span></div><div class="pills">`;
+      // 3-column layout with explicit row/col positions for HTF fields
+      // Format: [col, row] or [col, row, rowSpan]
+      const htfPos = {
+        weekly_bias: [1, 1], daily_bias: [1, 2], regime: [1, 3],
+        liq_draw: [2, 1], swept: [2, 2], extreme: [2, 3, 2],
+        barrier_above: [3, 1], barrier_below: [3, 2], draw_level_above: [3, 3], draw_level_below: [3, 4]
+      };
+      let fieldStyle = '';
+      if (g.key === "htf" && htfPos[f.id]) {
+        const pos = htfPos[f.id];
+        const col = pos[0];
+        const row = pos[1];
+        const rowSpan = pos[2] || 1;
+        const rowStyle = rowSpan > 1 ? `${row}/span ${rowSpan}` : row;
+        fieldStyle = ` style="grid-column:${col};grid-row:${rowStyle}"`;
+      }
+      // Tooltips
+      const tooltips = {
+        weekly_bias: "<strong>Weekly Bias</strong>\nPrimary bias (8-12 weeks).\nDetermines trade Direction.",
+        daily_bias: "<strong>Daily Bias</strong>\nModifier for conviction.\nIf differs from Weekly → conviction -1\n(Weekly still wins the direction).",
+        liq_draw: "<strong>Liquidity Draw</strong>\nDirection the market is pulled (target).\n• Above — upside target\n• Below — downside target\n• Both — balance state",
+        draw_level_above: "<strong>Draw Level Above — target strength</strong>\nСила уровня ликвидности сверху.\n\n• <strong>Major:</strong> HTF Swing, PDH, PWH\n• <strong>Medium:</strong> EQH, WO, MO, FVG 50%\n• <strong>Minor:</strong> Session H, Day Open, FVG edge\n\nLong trade + Minor → conviction -1",
+        draw_level_below: "<strong>Draw Level Below — target strength</strong>\nСила уровня ликвидности снизу.\n\n• <strong>Major:</strong> HTF Swing, PDL, PWL\n• <strong>Medium:</strong> EQL, WO, MO, FVG 50%\n• <strong>Minor:</strong> Session L, Day Open, FVG edge\n\nShort trade + Minor → conviction -1",
+        swept: "<strong>Recently Swept</strong>\nLiquidity taken in last 1-3 candles.\n\n• Same direction as Draw → Post-sweep (-1)\n  (target liquidity already taken — exhaustion warning)\n• Both sides → Transition (NO TRADE)\n• If sweep was long ago — leave empty",
+        extreme: "<strong>Near HTF Extreme</strong>\nMulti-select. Pick all levels where price is NOW.\n\nUsed for Reversal guard:\nWhen trade is against Weekly Bias,\nreversal allowed ONLY if price is at HTF extreme.\n\nEnabled when Mode = Reversal.",
+        barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>OB + Wick SNR together:</strong> strongest (-2)\n• <strong>OB alone:</strong> structural (-1)\n• <strong>Wick SNR alone:</strong> proven reaction (-1)\n• <strong>HTF FVG:</strong> weakest, usually passes (no impact)\n\nFVG только W/D таймфрейма.\nLTF FVG (1H/4H) не маркируем — слишком слабые.\n\nOnly affects Long trades.",
+        barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.",
+        regime: "<strong>Day Regime (MO/WO/DO alignment)</strong>\n• <strong>Trend 3/3:</strong> Max risk, Continuation\n• <strong>Moderate 2/3:</strong> Normal risk (-1 conviction)\n• <strong>Neutral:</strong> Low risk, Reversal only"
+      };
+      // Unified disable logic for conditional fields
+      const mode = computeMode();
+      let isDisabled = false;
+      if (f.id === "extreme") isDisabled = (mode !== "Reversal");
+      else if (f.id === "draw_level_above") isDisabled = (state.liq_draw !== "Above" && state.liq_draw !== "Both");
+      else if (f.id === "draw_level_below") isDisabled = (state.liq_draw !== "Below" && state.liq_draw !== "Both");
+      else if (f.id === "barrier_above") isDisabled = (state.liq_draw === "Below");
+      else if (f.id === "barrier_below") isDisabled = (state.liq_draw === "Above");
+      const disabledCls = isDisabled ? " field-disabled" : "";
+      const tipHtml = tooltips[f.id] ? `<span class="tip">${f.label} ⓘ<span class="tip-box">${tooltips[f.id]}</span></span>` : f.label;
+      html += `<div${fieldStyle} class="${disabledCls}"><div class="row" style="margin-bottom:2px"><span class="lbl">${tipHtml}</span></div><div class="pills">`;
       for (const o of f.opts) {
-        const sel = state[f.id] === o;
+        const sel = f.multi ? (Array.isArray(state[f.id]) && state[f.id].includes(o)) : state[f.id] === o;
         const isStop = STOP.has(o);
         const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
-        html += `<button class="${cls}" onclick="pick('${f.id}','${o.replace(/'/g,"\\'")}')">${o}</button>`;
+        const disabledAttr = isDisabled ? " disabled" : "";
+        const clickFn = f.multi ? "pickMulti" : "pick";
+        html += `<button class="${cls}"${disabledAttr} onclick="${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')">${o}</button>`;
       }
       html += `</div></div>`;
     }
@@ -449,21 +551,60 @@ function render() {
     if (g.key === "htf") {
       const call = computeTradeCall();
       const callColor = call === "Long" ? "var(--green)" : call === "Short" ? "var(--red)" : "var(--muted)";
-      const risk = computeRisk();
-      const riskColor = risk === "Max" ? "var(--green)" : risk === "Normal" ? "var(--yellow, #ca8a04)" : risk === "Low" ? "var(--red)" : "var(--muted)";
-      // Local mode: only from Regime + Liquidity
+      const phase = computeLiquidityPhase();
+      const phaseColor = phase === "Accumulation" ? "var(--green)" : phase === "Post-sweep↓" ? "var(--yellow, #ca8a04)" : phase === "Transition⛔" ? "var(--red)" : "var(--muted)";
+      // Mode
       let localMode = "—"; let lmColor = "var(--muted)";
-      if (state.regime === "Neutral") { localMode = "Reversal"; lmColor = "var(--red)"; }
-      else if (state.liquidity === "Swept") { localMode = "Reversal"; lmColor = "var(--red)"; }
+      if (phase === "Transition⛔") { localMode = "No Trade"; lmColor = "var(--red)"; }
+      else if (state.regime === "Neutral") { localMode = "Reversal"; lmColor = "var(--red)"; }
+      else if (state.swept === "Above" || state.swept === "Below") { localMode = "Reversal"; lmColor = "var(--red)"; }
       else if (state.regime) { localMode = "Continuation"; lmColor = "var(--green)"; }
-      // Local triggers
-      const htfTriggers = [state.bias==="Balanced"?"Balanced":null, state.liquidity==="Swept"?"Swept":null, state.barrier==="Yes↓"?"Barrier":null].filter(Boolean);
-      const trigLabel = htfTriggers.length ? "↓" + htfTriggers.join(", ") : "";
-      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
-      html += `<span class="lbl">Call</span><span style="font-size:13px;font-weight:700;color:${callColor}">${call||"—"}</span>`;
-      html += `<span class="lbl" style="margin-left:10px">Risk</span><span style="font-size:13px;font-weight:700;color:${riskColor}">${risk||"—"}</span>`;
-      html += `<span class="lbl" style="margin-left:10px">Mode</span><span style="font-size:13px;font-weight:700;color:${lmColor}">${localMode}</span>`;
-      if (trigLabel) html += `<span style="font-size:10px;color:var(--red);margin-left:10px">${trigLabel}</span>`;
+      // Triggers (HTF-local)
+      const htfTriggers = [];
+      if (state.weekly_bias === "Balanced") htfTriggers.push("W.Bal");
+      if (state.daily_bias && state.weekly_bias && state.daily_bias !== state.weekly_bias) htfTriggers.push("W≠D");
+      const incAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
+      const incBelow = state.liq_draw === "Below" || state.liq_draw === "Both";
+      if (call === "Long" && incAbove && state.draw_level_above === "Minor") htfTriggers.push("Minor↑");
+      else if (call === "Short" && incBelow && state.draw_level_below === "Minor") htfTriggers.push("Minor↓");
+      if (phase === "Post-sweep↓") htfTriggers.push("Post-sweep");
+      if (call === "Long") {
+        const s = barrierStrength(state.barrier_above);
+        if (s === 2) htfTriggers.push("Barr↑×2");
+        else if (s === 1) htfTriggers.push("Barr↑");
+      } else if (call === "Short") {
+        const s = barrierStrength(state.barrier_below);
+        if (s === 2) htfTriggers.push("Barr↓×2");
+        else if (s === 1) htfTriggers.push("Barr↓");
+      }
+      if (state.regime === "Mod 2/3") htfTriggers.push("Mod");
+      
+      // Count local HTF trigger value
+      const htfTrigCount = htfTriggers.reduce((s, t) => s + (t.includes("×2") ? 2 : 1), 0);
+      const htfConvLevel = 3 - htfTrigCount;
+      const htfConvLabel = htfConvLevel >= 3 ? "High" : htfConvLevel === 2 ? "Standard" : htfConvLevel === 1 ? "Low" : "No Trade";
+      
+      // Status dot color — based on HTF conviction + blockers
+      let dotColor = "var(--muted)";
+      let dotChar = "●";
+      if (phase === "Transition⛔") { dotColor = "var(--red)"; }
+      else if (htfConvLevel >= 3) dotColor = "var(--green)";
+      else if (htfConvLevel === 2) dotColor = "var(--yellow, #ca8a04)";
+      else dotColor = "var(--red)";
+      
+      const convColor = htfConvLevel >= 3 ? "var(--green)" : htfConvLevel === 2 ? "var(--yellow, #ca8a04)" : "var(--red)";
+      const trigLabel = htfTriggers.length ? " · ↓" + htfTriggers.join(", ") : "";
+      
+      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border);flex-wrap:wrap;gap:0;align-items:center">`;
+      html += `<span style="font-size:16px;color:${dotColor};margin-right:6px;line-height:1">${dotChar}</span>`;
+      html += `<span style="font-size:13px;font-weight:700;color:${callColor}">${call||"—"}</span>`;
+      html += `<span style="font-size:11px;color:var(--muted);margin:0 6px">·</span>`;
+      html += `<span style="font-size:13px;font-weight:700;color:${lmColor}">${localMode}</span>`;
+      html += `<span style="font-size:11px;color:var(--muted);margin:0 6px">·</span>`;
+      html += `<span style="font-size:13px;font-weight:700;color:${convColor}">${htfConvLabel} (-${htfTrigCount})</span>`;
+      html += `<span style="font-size:11px;color:var(--muted);margin:0 6px">·</span>`;
+      html += `<span style="font-size:12px;font-weight:600;color:${phaseColor}">${phase||"—"}</span>`;
+      if (trigLabel) html += `<span style="font-size:10px;color:var(--red);margin-left:4px">${trigLabel}</span>`;
       html += `</div>`;
     }
     if (g.key === "market") {
@@ -561,8 +702,40 @@ function render() {
   else vEl.innerHTML = '';
 }
  
+// Clear state for fields that become disabled based on Liq. Draw + Mode
+function syncDisabledFields() {
+  const draw = state.liq_draw;
+  // Draw-based disable
+  if (draw === "Above") {
+    state.barrier_below = undefined;
+    state.draw_level_below = undefined;
+  } else if (draw === "Below") {
+    state.barrier_above = undefined;
+    state.draw_level_above = undefined;
+  } else if (draw !== "Both") {
+    // No Liq Draw chosen → draw levels disabled
+    state.draw_level_above = undefined;
+    state.draw_level_below = undefined;
+  }
+  // Mode-based disable: extreme active only in Reversal mode
+  if (computeMode() !== "Reversal") {
+    state.extreme = undefined;
+  }
+}
+ 
 function pick(id, val) {
   state[id] = state[id] === val ? undefined : val;
+  syncDisabledFields();
+  localStorage.setItem('tc_state', JSON.stringify(state));
+  render();
+}
+ 
+function pickMulti(id, val) {
+  const arr = Array.isArray(state[id]) ? state[id].slice() : [];
+  const idx = arr.indexOf(val);
+  if (idx >= 0) arr.splice(idx, 1); else arr.push(val);
+  state[id] = arr.length ? arr : undefined;
+  syncDisabledFields();
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();
 }
@@ -656,7 +829,15 @@ function saveCfg() {
 }
  
 const FIELD_MAP = {
-  bias:["HTF Bias",{Bullish:"Bullish",Bearish:"Bearish",Balanced:"Balanced"}],
+  weekly_bias:["Weekly Bias",{Bullish:"Bullish",Bearish:"Bearish",Balanced:"Balanced"}],
+  daily_bias:["Daily Bias",{Bullish:"Bullish",Bearish:"Bearish",Balanced:"Balanced"}],
+  liq_draw:["Liquidity Draw",{Above:"Above",Below:"Below",Both:"Both"}],
+  draw_level_above:["Draw Level Above",{Major:"Major",Medium:"Medium",Minor:"Minor"}],
+  draw_level_below:["Draw Level Below",{Major:"Major",Medium:"Medium",Minor:"Minor"}],
+  swept:["Recently Swept",{None:"None",Above:"Above",Below:"Below",Both:"Both"}],
+  extreme:["",null],
+  barrier_above:["",null],
+  barrier_below:["",null],
   regime:["Day Regime",{"Trend 3/3":"Trend 3/3","Mod 2/3":"Moderate 2/3",Neutral:"Neutral"}],
   disp:["Displacement",{"Pass✅":"Pass","Fail⛔":"Fail"}],
   trigger:["Trigger",{BOS:"BOS","Liq.Sweep":"Liquidity Sweep"}],
@@ -664,8 +845,6 @@ const FIELD_MAP = {
   session:["Session",{Breakout:"Breakout",Sweep:"Sweep","Mid-Range":"Mid-Range"}],
   pricedir:["",null],
   sqzresol:["",null],
-  liquidity:["",null],
-  barrier:["",null],
   oidir:["",null],
   oi15_price:["",null],
   oi15_oi:["",null],
@@ -714,8 +893,11 @@ async function skipToNotion() {
   if (ms) { const msMap = {Bullish:"Bullish",Bearish:"Bearish","L.Squeeze⛔":"Long Squeeze","S.Squeeze⛔":"Short Squeeze","Flat⛔":"Flat",Absorption:"Flat"}; if (msMap[ms]) props["Market State"] = msMap[ms]; }
   const oi15 = computeOI15M();
   if (oi15) { const oiMap = {"Confirms✅":"Confirms","Against↓":"Against","Flat↓":"Flat","Spike⛔":"Spike","Diverge⛔":"Diverge"}; if (oiMap[oi15]) props["OI Confirm"] = oiMap[oi15]; }
-  if (state.liquidity) props["HTF Liquidity"] = state.liquidity;
-  if (state.barrier) { props["HTF Barrier"] = state.barrier === "Yes↓" ? "Yes" : "No"; }
+  const phase = computeLiquidityPhase();
+  if (phase) { const phaseMap = {"Accumulation":"Accumulation","Post-sweep↓":"Post-sweep","Transition⛔":"Transition"}; if (phaseMap[phase]) props["Liquidity Phase"] = phaseMap[phase]; }
+  if (Array.isArray(state.extreme) && state.extreme.length) props["Near HTF Extreme"] = state.extreme;
+  if (Array.isArray(state.barrier_above) && state.barrier_above.length) props["Barrier Above"] = state.barrier_above;
+  if (Array.isArray(state.barrier_below) && state.barrier_below.length) props["Barrier Below"] = state.barrier_below;
   const dir = computeDirection(); if (dir) props["Direction"] = dir;
   const {label: convSave, triggers: trigSave} = computeConviction();
   if (convSave) props["Conviction"] = convSave + " (-" + trigSave + ")";
@@ -779,9 +961,12 @@ async function saveToNotion() {
   if (dir) props["Direction"] = dir;
   const {label: convSave, triggers: trigSave} = computeConviction();
   if (convSave) props["Conviction"] = convSave + " (-" + trigSave + ")";
-  // New fields
-  if (state.liquidity) props["HTF Liquidity"] = state.liquidity;
-  if (state.barrier) { props["HTF Barrier"] = state.barrier === "Yes↓" ? "Yes" : "No"; }
+  // Auto-computed fields
+  const phaseSk = computeLiquidityPhase();
+  if (phaseSk) { const phaseMap = {"Accumulation":"Accumulation","Post-sweep↓":"Post-sweep","Transition⛔":"Transition"}; if (phaseMap[phaseSk]) props["Liquidity Phase"] = phaseMap[phaseSk]; }
+  if (Array.isArray(state.extreme) && state.extreme.length) props["Near HTF Extreme"] = state.extreme;
+  if (Array.isArray(state.barrier_above) && state.barrier_above.length) props["Barrier Above"] = state.barrier_above;
+  if (Array.isArray(state.barrier_below) && state.barrier_below.length) props["Barrier Below"] = state.barrier_below;
   const modeSave = computeMode();
   if (modeSave) props["Trade Mode"] = modeSave;
  

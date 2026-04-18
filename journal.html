@@ -125,19 +125,26 @@ async function loadTrades() {
       if (opened) { const d = Date.now() - opened.getTime(); const h = Math.floor(d/3600000); const m = Math.floor((d%3600000)/60000); elapsed = h > 0 ? h+"h "+m+"m" : m+"m"; }
       function rr(tp) { if (!tp || !risk) return ""; const r = (Math.abs(tp - entry) / risk).toFixed(1); return '<span class="tp-rr '+(r>=2?"good":r>=1?"ok":"bad")+'">1:'+r+'</span>'; }
       const tags = [t["HTF Bias"]?"HTF:"+t["HTF Bias"]:"", t["Market State"]?"MS:"+t["Market State"]:"", t["OI Confirm"]?"OI:"+t["OI Confirm"]:"", t["Funding Check"]&&t["Funding Check"]!=="OK"?"F:"+t["Funding Check"]:"", t.Session, t.Trigger].filter(Boolean);
+      const modeColor = t.Mode === "Live" ? "var(--green)" : "var(--muted)";
+      const skippedBadge = t.Skipped ? '<span style="font-size:10px;padding:1px 7px;border-radius:8px;border:1px solid var(--yellow,#ca8a04);color:var(--yellow,#ca8a04);margin-left:4px">⏭ Skipped</span>' : '';
+      const defaultExit = t.TP1 || "";
       return '<div class="card '+dir+'">' +
-        '<div class="card-top"><span class="card-asset">'+(t.Asset||"?")+'</span><span class="card-dir '+dir+'">'+(t.Direction||"")+'</span><span class="card-conv">'+(t.Conviction||"")+'</span><span class="card-mode">'+(t["Trade Mode"]||"")+'</span><span class="card-time">'+(elapsed?"⏱ "+elapsed:"")+'</span></div>' +
+        '<div class="card-top"><span class="card-asset">'+(t.Asset||"?")+'</span><span class="card-dir '+dir+'">'+(t.Direction||"")+'</span><span class="card-conv">'+(t.Conviction||"")+'</span><span class="card-mode">'+(t["Trade Mode"]||"")+'</span>' +
+        '<span style="font-size:10px;padding:1px 7px;border-radius:8px;border:1px solid '+modeColor+';color:'+modeColor+';margin-left:4px">'+(t.Mode||"Live")+'</span>' +
+        skippedBadge +
+        '<span class="card-time">'+(elapsed?"⏱ "+elapsed:"")+'</span></div>' +
         '<div class="card-grid"><div><div class="card-label">Entry</div><div class="card-val">'+(entry!=null?entry:"—")+'</div></div><div><div class="card-label">Stop</div><div class="card-val" style="color:var(--red)">'+(stop!=null?stop:"—")+'</div></div><div><div class="card-label">Risk</div><div class="card-val">'+(t["Risk %"]!=null?t["Risk %"]+"%":"—")+'</div></div></div>' +
         '<div class="card-targets">'+(t.TP1?'<div><span class="tp-label">TP1</span> <span class="tp-val">'+t.TP1+'</span>'+rr(t.TP1)+'</div>':'')+(t.TP2?'<div><span class="tp-label">TP2</span> <span class="tp-val">'+t.TP2+'</span>'+rr(t.TP2)+'</div>':'')+(t.TP3?'<div><span class="tp-label">TP3</span> <span class="tp-val">'+t.TP3+'</span>'+rr(t.TP3)+'</div>':'')+'</div>' +
         (tags.length?'<div class="card-ctx">'+tags.map(c=>'<span class="ctx-tag">'+c+'</span>').join("")+'</div>':'') +
+        (t.Notes?'<div style="font-size:11px;color:var(--muted);padding:4px 8px;border-top:1px solid var(--border);width:100%;box-sizing:border-box">📝 '+t.Notes+'</div>':'') +
         '<div class="close-row">' +
           '<span style="font-size:10px;color:var(--muted)">CLOSE:</span>' +
-          '<input class="close-inp" id="exit_'+t.id+'" placeholder="Exit Price" type="number">' +
-          '<select class="close-sel" id="reason_'+t.id+'"><option value="">Reason</option><option>TP1</option><option>TP2</option><option>TP3</option><option>Stop</option><option>Time Stop</option><option>Manual</option><option>BE</option></select>' +
-          '<input class="close-inp" id="lesson_'+t.id+'" placeholder="Lessons" style="width:150px">' +
+          '<input class="close-inp" id="exit_'+t.id+'" placeholder="Exit Price" type="number" value="'+defaultExit+'">' +
+          '<select class="close-sel" id="reason_'+t.id+'"><option value="">Reason</option><option selected>TP1</option><option>TP2</option><option>TP3</option><option>Stop</option><option>Time Stop</option><option>Manual</option><option>BE</option></select>' +
           '<button class="close-btn" onclick="closeTrade(\''+t.id+'\')">Close Trade</button>' +
           '<span class="close-msg" id="msg_'+t.id+'"></span>' +
         '</div>' +
+        '<div style="padding:4px 8px;padding-bottom:6px"><input class="close-inp" id="lesson_'+t.id+'" placeholder="Lessons..." style="width:100%;box-sizing:border-box"></div>' +
       '</div>';
     }).join(""); }
     // Results section
@@ -200,4 +207,3 @@ setInterval(loadTrades, 300000);
 </script>
 </body>
 </html>
- 

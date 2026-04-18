@@ -632,11 +632,10 @@ function renderRR() {
  
 function resetAll() {
   state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false};
-  ['state','disp','risk','entry','stop','tp1','tp2','tp3','rr','notes','screenshot','account','skipreason'].forEach(k => localStorage.removeItem('tc_'+k));
+  ['state','disp','risk','entry','stop','tp1','tp2','tp3','rr','notes','screenshot','account'].forEach(k => localStorage.removeItem('tc_'+k));
   localStorage.removeItem('tc_state');
   document.getElementById("notes").value = "";
   document.getElementById("screenshot").value = "";
-  document.getElementById("skip_reason").value = "";
   render();
   renderTopPills();
 }
@@ -831,7 +830,6 @@ renderTopPills();
 // Restore notes & screenshot
 if (localStorage.getItem('tc_notes')) document.getElementById('notes').value = localStorage.getItem('tc_notes');
 if (localStorage.getItem('tc_screenshot')) document.getElementById('screenshot').value = localStorage.getItem('tc_screenshot');
-if (localStorage.getItem('tc_skipreason')) document.getElementById('skip_reason').value = localStorage.getItem('tc_skipreason');
 renderRR();
 </script>
 </body>

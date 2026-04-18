@@ -734,6 +734,7 @@ async function skipToNotion() {
     else { showStatus("❌ Error: " + (data.message || JSON.stringify(data)), false); }
   } catch(e) { showStatus("❌ " + e.message, false); }
 }
+async function saveToNotion() {
   const worker = localStorage.getItem("tc_worker");
   const token = localStorage.getItem("tc_token");
   if (!worker || !token) { toggleSettings(); showStatus("⚠️ Set Worker URL and Notion Token first", false); return; }

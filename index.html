@@ -285,11 +285,13 @@ function computeConviction() {
   if (state.weekly_bias === "Balanced") triggers++;
   if (state.daily_bias && state.weekly_bias && state.daily_bias !== state.weekly_bias) triggers++;
   // Draw Level trigger — check level in trade direction AND if draw includes that side
+  // Cancelled by Regime = Trend 3/3 (strong MO/WO/DO alignment compensates for weak target)
   const dirForDraw = computeTradeCall();
   const drawIncludesAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
   const drawIncludesBelow = state.liq_draw === "Below" || state.liq_draw === "Both";
-  if (dirForDraw === "Long" && drawIncludesAbove && state.draw_level_above === "Minor") triggers++;
-  else if (dirForDraw === "Short" && drawIncludesBelow && state.draw_level_below === "Minor") triggers++;
+  const isTrendDay = state.regime === "Trend 3/3";
+  if (!isTrendDay && dirForDraw === "Long" && drawIncludesAbove && state.draw_level_above === "Minor") triggers++;
+  else if (!isTrendDay && dirForDraw === "Short" && drawIncludesBelow && state.draw_level_below === "Minor") triggers++;
   const phase = computeLiquidityPhase();
   if (phase === "Post-sweep↓") triggers++;
   
@@ -490,7 +492,7 @@ function render() {
         extreme: "<strong>Near HTF Extreme</strong>\nMulti-select. Pick all levels where price is NOW.\n\nUsed for Reversal guard:\nWhen trade is against Weekly Bias,\nreversal allowed ONLY if price is at HTF extreme.\n\nEnabled when Mode = Reversal.",
         barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>OB + Wick SNR together:</strong> strongest (-2)\n• <strong>OB alone:</strong> structural (-1)\n• <strong>Wick SNR alone:</strong> proven reaction (-1)\n• <strong>HTF FVG:</strong> weakest, usually passes (no impact)\n\nFVG только W/D таймфрейма.\nLTF FVG (1H/4H) не маркируем — слишком слабые.\n\nOnly affects Long trades.",
         barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.",
-        regime: "<strong>Day Regime (MO/WO/DO alignment)</strong>\n• <strong>Trend 3/3:</strong> Max risk, Continuation\n• <strong>Moderate 2/3:</strong> Normal risk (-1 conviction)\n• <strong>Neutral:</strong> Low risk, Reversal only"
+        regime: "<strong>Day Regime (MO/WO/DO alignment)</strong>\n• <strong>Trend 3/3:</strong> Max risk, Continuation\n  → Cancels Draw Level Minor trigger\n• <strong>Moderate 2/3:</strong> Normal risk (-1 conviction)\n• <strong>Neutral:</strong> Low risk, Reversal only"
       };
       // Unified disable logic for conditional fields
       const mode = computeMode();
@@ -565,8 +567,9 @@ function render() {
       if (state.daily_bias && state.weekly_bias && state.daily_bias !== state.weekly_bias) htfTriggers.push("W≠D");
       const incAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
       const incBelow = state.liq_draw === "Below" || state.liq_draw === "Both";
-      if (call === "Long" && incAbove && state.draw_level_above === "Minor") htfTriggers.push("Minor↑");
-      else if (call === "Short" && incBelow && state.draw_level_below === "Minor") htfTriggers.push("Minor↓");
+      const isTrendDay = state.regime === "Trend 3/3";
+      if (!isTrendDay && call === "Long" && incAbove && state.draw_level_above === "Minor") htfTriggers.push("Minor↑");
+      else if (!isTrendDay && call === "Short" && incBelow && state.draw_level_below === "Minor") htfTriggers.push("Minor↓");
       if (phase === "Post-sweep↓") htfTriggers.push("Post-sweep");
       if (call === "Long") {
         const s = barrierStrength(state.barrier_above);

@@ -316,9 +316,21 @@ function computeConviction() {
   if (phase === "Post-sweep↓") triggers++;
   
   // Barrier in direction of trade (multi-select)
+  // For Both direction (Weekly Balanced): use Draw direction as proxy for target direction
   const dir = computeTradeCall();
   if (dir === "Long") triggers += barrierStrength(state.barrier_above);
   else if (dir === "Short") triggers += barrierStrength(state.barrier_below);
+  else if (dir === "Both↓") {
+    // Balanced bias: barrier applies based on Draw direction (which side price targets)
+    if (state.liq_draw === "Above") triggers += barrierStrength(state.barrier_above);
+    else if (state.liq_draw === "Below") triggers += barrierStrength(state.barrier_below);
+    else if (state.liq_draw === "Both") {
+      // Both draws: take the stronger barrier to be conservative
+      const bAbove = barrierStrength(state.barrier_above);
+      const bBelow = barrierStrength(state.barrier_below);
+      triggers += Math.max(bAbove, bBelow);
+    }
+  }
   
   // Regime trigger
   if (state.regime === "Mod 2/3") triggers++;
@@ -340,8 +352,9 @@ function computeConviction() {
   if (state.session === "Mid-Range") triggers++;
   if (state.session === "Sweep") triggers++;
   
-  const level = 3 - triggers;
-  const label = level >= 3 ? "High" : level === 2 ? "Standard" : "Low";
+  // Conviction label by triggers count (per spec §7):
+  // 0-1 triggers = High, 2 = Standard, 3+ = Low
+  const label = triggers <= 1 ? "High" : triggers === 2 ? "Standard" : "Low";
   return { label, triggers };
 }
  
@@ -508,7 +521,7 @@ function render() {
       const tooltips = {
         weekly_bias: "<strong>Weekly Bias</strong>\nPrimary bias (8-12 weeks).\nDetermines trade Direction.",
         daily_bias: "<strong>Daily Bias</strong>\nModifier for conviction.\nIf differs from Weekly → conviction -1\n(Weekly still wins the direction).",
-        liq_draw: "<strong>Liquidity Draw</strong>\nDirection the market is pulled (target).\n• Above — upside target\n• Below — downside target\n• Both — balance state",
+        liq_draw: "<strong>Target Liq. — direction of target liquidity</strong>\nWhere market is pulled.\n• Above — upside target\n• Below — downside target\n• Both — balance state",
         draw_level_above: "<strong>Draw Level Above</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)",
         draw_level_below: "<strong>Draw Level Below</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)",
         swept: "<strong>Recently Swept</strong>\nLiquidity taken in last 1-3 candles.\n\n• Same direction as Draw → Post-sweep (-1)\n  (target liquidity already taken — exhaustion warning)\n• Both sides → Transition (NO TRADE)\n• If sweep was long ago — leave empty",
@@ -623,23 +636,45 @@ function render() {
         const s = barrierStrength(state.barrier_below);
         if (s === 2) htfTriggers.push("Barr↓×2");
         else if (s === 1) htfTriggers.push("Barr↓");
+      } else if (call === "Both↓") {
+        // Balanced bias: barrier from Draw direction
+        if (state.liq_draw === "Above") {
+          const s = barrierStrength(state.barrier_above);
+          if (s === 2) htfTriggers.push("Barr↑×2");
+          else if (s === 1) htfTriggers.push("Barr↑");
+        } else if (state.liq_draw === "Below") {
+          const s = barrierStrength(state.barrier_below);
+          if (s === 2) htfTriggers.push("Barr↓×2");
+          else if (s === 1) htfTriggers.push("Barr↓");
+        } else if (state.liq_draw === "Both") {
+          const bAbove = barrierStrength(state.barrier_above);
+          const bBelow = barrierStrength(state.barrier_below);
+          if (bAbove >= bBelow && bAbove > 0) {
+            if (bAbove === 2) htfTriggers.push("Barr↑×2");
+            else htfTriggers.push("Barr↑");
+          } else if (bBelow > 0) {
+            if (bBelow === 2) htfTriggers.push("Barr↓×2");
+            else htfTriggers.push("Barr↓");
+          }
+        }
       }
       if (state.regime === "Mod 2/3") htfTriggers.push("Mod");
       
       // Count local HTF trigger value
       const htfTrigCount = htfTriggers.reduce((s, t) => s + (t.includes("×2") ? 2 : 1), 0);
-      const htfConvLevel = 3 - htfTrigCount;
-      const htfConvLabel = htfConvLevel >= 3 ? "High" : htfConvLevel === 2 ? "Standard" : htfConvLevel === 1 ? "Low" : "No Trade";
+      // HTF local conviction: 0-1=High, 2=Standard, 3+=Low (matches main conviction)
+      const htfConvLabel = htfTrigCount <= 1 ? "High" : htfTrigCount === 2 ? "Standard" : "Low";
+      const htfConvLevel = 3 - htfTrigCount;  // kept for dot color logic below
       
-      // Status dot color — based on HTF conviction + blockers
+      // Status dot color — based on HTF conviction label (aligned with fixed thresholds)
       let dotColor = "var(--muted)";
       let dotChar = "●";
       if (phase === "Transition⛔") { dotColor = "var(--red)"; }
-      else if (htfConvLevel >= 3) dotColor = "var(--green)";
-      else if (htfConvLevel === 2) dotColor = "var(--yellow, #ca8a04)";
+      else if (htfConvLabel === "High") dotColor = "var(--green)";
+      else if (htfConvLabel === "Standard") dotColor = "var(--yellow, #ca8a04)";
       else dotColor = "var(--red)";
       
-      const convColor = htfConvLevel >= 3 ? "var(--green)" : htfConvLevel === 2 ? "var(--yellow, #ca8a04)" : "var(--red)";
+      const convColor = htfConvLabel === "High" ? "var(--green)" : htfConvLabel === "Standard" ? "var(--yellow, #ca8a04)" : "var(--red)";
       const trigLabel = htfTriggers.length ? " · ↓" + htfTriggers.join(", ") : "";
       
       html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border);flex-wrap:wrap;gap:0;align-items:center">`;
@@ -880,7 +915,7 @@ function saveCfg() {
 const FIELD_MAP = {
   weekly_bias:["Weekly Bias",{Bullish:"Bullish",Bearish:"Bearish",Balanced:"Balanced"}],
   daily_bias:["Daily Bias",{Bullish:"Bullish",Bearish:"Bearish",Balanced:"Balanced"}],
-  liq_draw:["Liquidity Draw",{Above:"Above",Below:"Below",Both:"Both"}],
+  liq_draw:["Target Liq.",{Above:"Above",Below:"Below",Both:"Both"}],
   // draw_level handled separately as multi_select arrays (see saveToNotion)
   swept:["Recently Swept",{None:"None",Above:"Above",Below:"Below",Both:"Both"}],
   extreme:["",null],

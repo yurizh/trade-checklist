@@ -144,7 +144,7 @@ const STOP = new Set(["S.Squeeze⛔","Flat⛔","Diverge⛔","Extreme⛔","No Tra
  
 const GROUPS = [
   { key:"htf", title:"1. HTF CONTEXT", color:"#3b82f6",
-    rules:"Weekly Bias = primary (Direction) | Daily Bias = modifier (conviction) | Liquidity Draw + Recently Swept → Phase (Accumulation/Post-sweep/Transition) | Barrier in direction blocks/lowers conviction (HTF FVG=no impact) | Regime restricts risk | Draw Level Minor = -1 conv | Near HTF Extreme enables Reversal when Bias≠MS",
+    rules:"Weekly Bias = primary (Direction) | Daily Bias = modifier (conviction) | Liquidity Draw + Recently Swept → Phase (Accumulation/Post-sweep/Transition) | Barrier in direction blocks/lowers conviction (HTF FVG=no impact) | Regime restricts risk | Draw Level Minor = -1 conv | Near HTF Extreme required for ANY Reversal mode",
     fields:[
       {id:"weekly_bias",label:"Weekly Bias",opts:["Bullish","Bearish","Balanced"]},
       {id:"daily_bias",label:"Daily Bias",opts:["Bullish","Bearish","Balanced"]},
@@ -431,7 +431,10 @@ function render() {
   const hasComputedStop = (ms && ms.includes("⛔") && !squeezeResolved);
   const oi15 = computeOI15M();
   const hasOIStop = oi15 && oi15.includes("⛔");
-  const hasStop = hasManualStop || hasComputedStop || hasOIStop;
+  // Reversal without HTF Extreme = blocker (covers all reversal triggers: Neutral, Swept, Bias conflict)
+  const currentMode = computeMode();
+  const hasReversalNoExtreme = currentMode === "Reversal" && (!Array.isArray(state.extreme) || !state.extreme.length);
+  const hasStop = hasManualStop || hasComputedStop || hasOIStop || hasReversalNoExtreme;
   
   for (let i = 0; i < GROUPS.length; i++) {
     const g = GROUPS[i];
@@ -489,7 +492,7 @@ function render() {
         draw_level_above: "<strong>Draw Level Above — target strength</strong>\nСила уровня ликвидности сверху.\n\n• <strong>Major:</strong> HTF Swing, PDH, PWH\n• <strong>Medium:</strong> EQH, WO, MO, FVG 50%\n• <strong>Minor:</strong> Session H, Day Open, FVG edge\n\nLong trade + Minor → conviction -1",
         draw_level_below: "<strong>Draw Level Below — target strength</strong>\nСила уровня ликвидности снизу.\n\n• <strong>Major:</strong> HTF Swing, PDL, PWL\n• <strong>Medium:</strong> EQL, WO, MO, FVG 50%\n• <strong>Minor:</strong> Session L, Day Open, FVG edge\n\nShort trade + Minor → conviction -1",
         swept: "<strong>Recently Swept</strong>\nLiquidity taken in last 1-3 candles.\n\n• Same direction as Draw → Post-sweep (-1)\n  (target liquidity already taken — exhaustion warning)\n• Both sides → Transition (NO TRADE)\n• If sweep was long ago — leave empty",
-        extreme: "<strong>Near HTF Extreme</strong>\nMulti-select. Pick all levels where price is NOW.\n\nUsed for Reversal guard:\nWhen trade is against Weekly Bias,\nreversal allowed ONLY if price is at HTF extreme.\n\nEnabled when Mode = Reversal.",
+        extreme: "<strong>Near HTF Extreme</strong>\nMulti-select. Pick all levels where price is NOW.\n\nRequired for ANY Reversal trade:\n• Regime=Neutral → Reversal\n• Recently Swept → Reversal\n• Weekly Bias conflict → Reversal\n\nIf Mode=Reversal and Extreme empty → 🔴 BLOCKER\n\nEnabled when Mode = Reversal.",
         barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>OB + Wick SNR together:</strong> strongest (-2)\n• <strong>OB alone:</strong> structural (-1)\n• <strong>Wick SNR alone:</strong> proven reaction (-1)\n• <strong>HTF FVG:</strong> weakest, usually passes (no impact)\n\nFVG только W/D таймфрейма.\nLTF FVG (1H/4H) не маркируем — слишком слабые.\n\nOnly affects Long trades.",
         barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.",
         regime: "<strong>Day Regime (MO/WO/DO alignment)</strong>\n• <strong>Trend 3/3:</strong> Max risk, Continuation\n  → Cancels Draw Level Minor trigger\n• <strong>Moderate 2/3:</strong> Normal risk (-1 conviction)\n• <strong>Neutral:</strong> Low risk, Reversal only"
@@ -671,7 +674,8 @@ function render() {
       html += `</div>`;
       // Verdict inside section 8
       let s8verdict = ""; let s8color = "var(--muted)";
-      if (hasStop) { s8verdict = "🔴 NO TRADE"; s8color = "var(--red)"; }
+      if (hasReversalNoExtreme) { s8verdict = "🔴 REVERSAL — SELECT EXTREME"; s8color = "var(--red)"; }
+      else if (hasStop) { s8verdict = "🔴 NO TRADE"; s8color = "var(--red)"; }
       else if (convTriggers >= 3) { s8verdict = "🔴 TOO MANY RISKS (-" + convTriggers + ")"; s8color = "var(--red)"; }
       else if (state.confirm === "Not yet") { s8verdict = "🟡 WAIT CONFIRM"; s8color = "var(--yellow, #ca8a04)"; }
       else if (GROUPS.every(g => g.fields.every(f => f.optional || (f.id === "disp" ? state.disp : state[f.id])))) { s8verdict = "🟢 TRADE"; s8color = "var(--green)"; }
@@ -698,7 +702,8 @@ function render() {
   const notConfirmed = state.confirm === "Not yet";
   const {triggers: convTrig} = computeConviction();
   const tooManyTriggers = convTrig >= 3;
-  if (hasStop) vEl.innerHTML = '<span class="verdict-label verdict-notrade">🔴 NO TRADE</span>';
+  if (hasReversalNoExtreme) vEl.innerHTML = '<span class="verdict-label verdict-notrade">🔴 SELECT EXTREME</span>';
+  else if (hasStop) vEl.innerHTML = '<span class="verdict-label verdict-notrade">🔴 NO TRADE</span>';
   else if (tooManyTriggers) vEl.innerHTML = '<span class="verdict-label verdict-notrade">🔴 TOO MANY RISKS (-' + convTrig + ')</span>';
   else if (notConfirmed) vEl.innerHTML = '<span class="verdict-label" style="color:var(--yellow,#ca8a04)">🟡 WAIT CONFIRM</span>';
   else if (allGroupsFilled) vEl.innerHTML = '<span class="verdict-label verdict-trade">🟢 TRADE</span>';

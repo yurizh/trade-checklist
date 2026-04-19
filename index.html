@@ -260,8 +260,23 @@ function computeLiquidityPhase() {
   // Post-sweep: draw same direction as recent sweep (target liquidity already taken)
   if ((draw === "Above" && swept === "Above") || (draw === "Below" && swept === "Below")) return "Post-sweep↓";
   
+  // H1.11 fix: Draw=Both + Swept one side = effective Post-sweep
+  // Swept side is exhausted, remaining side becomes primary target
+  if (draw === "Both" && (swept === "Above" || swept === "Below")) return "Post-sweep↓";
+  
   // Draw opposite to swept = accumulation-like
   return "Accumulation";
+}
+ 
+// Returns effective Target Liq. direction after sweep adjustment
+// When Draw=Both but one side swept → effective draw shifts to unswept side
+function computeEffectiveLiqDirection() {
+  const draw = state.liq_draw;
+  const swept = state.swept;
+  if (!draw) return null;
+  if (draw === "Both" && swept === "Above") return "Below";  // Above side exhausted, target Below
+  if (draw === "Both" && swept === "Below") return "Above";  // Below side exhausted, target Above
+  return draw;  // no shift needed
 }
  
 function computeDirection() {
@@ -310,8 +325,19 @@ function computeConviction() {
   const isTrendDay = state.regime === "Trend 3/3";
   const dlAboveArr = Array.isArray(state.draw_level_above) ? state.draw_level_above : (state.draw_level_above ? [state.draw_level_above] : []);
   const dlBelowArr = Array.isArray(state.draw_level_below) ? state.draw_level_below : (state.draw_level_below ? [state.draw_level_below] : []);
-  if (!isTrendDay && dirForDraw === "Long" && drawIncludesAbove && dlAboveArr.some(t => drawLevelStrength(t) === "Minor")) triggers++;
-  else if (!isTrendDay && dirForDraw === "Short" && drawIncludesBelow && dlBelowArr.some(t => drawLevelStrength(t) === "Minor")) triggers++;
+  // For Both direction (Weekly Balanced): check Minor on Liq. side(s) that match Target Liq.
+  if (!isTrendDay) {
+    if (dirForDraw === "Long" && drawIncludesAbove && dlAboveArr.some(t => drawLevelStrength(t) === "Minor")) {
+      triggers++;
+    } else if (dirForDraw === "Short" && drawIncludesBelow && dlBelowArr.some(t => drawLevelStrength(t) === "Minor")) {
+      triggers++;
+    } else if (dirForDraw === "Both↓") {
+      // Balanced bias: check Minor on the side(s) where Target Liq. is set
+      const hasAboveMinor = drawIncludesAbove && dlAboveArr.some(t => drawLevelStrength(t) === "Minor");
+      const hasBelowMinor = drawIncludesBelow && dlBelowArr.some(t => drawLevelStrength(t) === "Minor");
+      if (hasAboveMinor || hasBelowMinor) triggers++;  // any side Minor = -1 (not double-count)
+    }
+  }
   const phase = computeLiquidityPhase();
   if (phase === "Post-sweep↓") triggers++;
   
@@ -625,8 +651,17 @@ function render() {
       const isTrendDay = state.regime === "Trend 3/3";
       const dlAbove = Array.isArray(state.draw_level_above) ? state.draw_level_above : (state.draw_level_above ? [state.draw_level_above] : []);
       const dlBelow = Array.isArray(state.draw_level_below) ? state.draw_level_below : (state.draw_level_below ? [state.draw_level_below] : []);
-      if (!isTrendDay && call === "Long" && incAbove && dlAbove.some(t => drawLevelStrength(t) === "Minor")) htfTriggers.push("Minor↑");
-      else if (!isTrendDay && call === "Short" && incBelow && dlBelow.some(t => drawLevelStrength(t) === "Minor")) htfTriggers.push("Minor↓");
+      if (!isTrendDay) {
+        if (call === "Long" && incAbove && dlAbove.some(t => drawLevelStrength(t) === "Minor")) htfTriggers.push("Minor↑");
+        else if (call === "Short" && incBelow && dlBelow.some(t => drawLevelStrength(t) === "Minor")) htfTriggers.push("Minor↓");
+        else if (call === "Both↓") {
+          const hasAboveMinor = incAbove && dlAbove.some(t => drawLevelStrength(t) === "Minor");
+          const hasBelowMinor = incBelow && dlBelow.some(t => drawLevelStrength(t) === "Minor");
+          if (hasAboveMinor && hasBelowMinor) htfTriggers.push("Minor↕");
+          else if (hasAboveMinor) htfTriggers.push("Minor↑");
+          else if (hasBelowMinor) htfTriggers.push("Minor↓");
+        }
+      }
       if (phase === "Post-sweep↓") htfTriggers.push("Post-sweep");
       if (call === "Long") {
         const s = barrierStrength(state.barrier_above);

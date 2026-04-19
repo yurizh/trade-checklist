@@ -124,7 +124,7 @@ async function loadTrades() {
       let elapsed = "";
       if (opened) { const d = Date.now() - opened.getTime(); const h = Math.floor(d/3600000); const m = Math.floor((d%3600000)/60000); elapsed = h > 0 ? h+"h "+m+"m" : m+"m"; }
       function rr(tp) { if (!tp || !risk) return ""; const r = (Math.abs(tp - entry) / risk).toFixed(1); return '<span class="tp-rr '+(r>=2?"good":r>=1?"ok":"bad")+'">1:'+r+'</span>'; }
-      const tags = [t["HTF Bias"]?"HTF:"+t["HTF Bias"]:"", t["Market State"]?"MS:"+t["Market State"]:"", t["OI Confirm"]?"OI:"+t["OI Confirm"]:"", t["Funding Check"]&&t["Funding Check"]!=="OK"?"F:"+t["Funding Check"]:"", t.Session, t.Trigger].filter(Boolean);
+      const tags = [t["Weekly Bias"]?"W:"+t["Weekly Bias"]:"", t["Market State"]?"MS:"+t["Market State"]:"", t["Liquidity Phase"]?"Ph:"+t["Liquidity Phase"]:"", t["OI Confirm"]?"OI:"+t["OI Confirm"]:"", t["Funding Check"]&&t["Funding Check"]!=="OK"?"F:"+t["Funding Check"]:"", t.Session, t.Trigger].filter(Boolean);
       const modeColor = t.Mode === "Live" ? "var(--green)" : "var(--muted)";
       const skippedBadge = t.Skipped ? '<span style="font-size:10px;padding:1px 7px;border-radius:8px;border:1px solid var(--yellow,#ca8a04);color:var(--yellow,#ca8a04);margin-left:4px">⏭ Skipped</span>' : '';
       const defaultExit = t.TP1 || "";

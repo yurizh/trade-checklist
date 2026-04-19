@@ -144,18 +144,18 @@ const STOP = new Set(["S.Squeeze⛔","Flat⛔","Diverge⛔","Extreme⛔","No Tra
  
 const GROUPS = [
   { key:"htf", title:"1. HTF CONTEXT", color:"#3b82f6",
-    rules:"Weekly Bias = primary (Direction) | Daily Bias = modifier (conviction) | Liquidity Draw + Recently Swept → Phase (Accumulation/Post-sweep/Transition) | Barrier in direction blocks/lowers conviction (HTF FVG=no impact) | Regime restricts risk | Draw Level Minor = -1 conv | Near HTF Extreme required for ANY Reversal mode",
+    rules:"Weekly Bias = primary (Direction) | Daily Bias = modifier (conviction) | Target Liq. + Recently Swept → Phase (Accumulation/Post-sweep/Transition) | Barrier in direction blocks/lowers conviction (HTF FVG=no impact) | Regime restricts risk | Liq. Minor = -1 conv | Near HTF Extreme required for ANY Reversal mode",
     fields:[
       {id:"weekly_bias",label:"Weekly Bias",opts:["Bullish","Bearish","Balanced"]},
       {id:"daily_bias",label:"Daily Bias",opts:["Bullish","Bearish","Balanced"]},
       {id:"regime",label:"Regime",opts:["Trend 3/3","Mod 2/3","Neutral"]},
-      {id:"liq_draw",label:"Liq. Draw",opts:["Above","Below","Both"]},
+      {id:"liq_draw",label:"Target Liq.",opts:["Above","Below","Both"]},
       {id:"swept",label:"Recently Swept",opts:["Above","Below","Both"],optional:true},
       {id:"barrier_above",label:"Barrier Above",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
       {id:"barrier_below",label:"Barrier Below",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
       {id:"extreme",label:"Near HTF Extreme",opts:["PDH","PDL","EQH","EQL","WO","HTF Swing"],optional:true,multi:true},
-      {id:"draw_level_above",label:"Draw Level Above",opts:["HTF Swing H","PWH","MO","PDH","WO","EQH","FVG 50%","Round Number","Session H","DO","FVG edge"],optional:true,multi:true},
-      {id:"draw_level_below",label:"Draw Level Below",opts:["HTF Swing L","PWL","MO","PDL","WO","EQL","FVG 50%","Round Number","Session L","DO","FVG edge"],optional:true,multi:true}
+      {id:"draw_level_above",label:"Liq. Above",opts:["HTF Swing H","PWH","MO","PDH","WO","EQH","FVG 50%","Round Number","Session H","DO","FVG edge"],optional:true,multi:true},
+      {id:"draw_level_below",label:"Liq. Below",opts:["HTF Swing L","PWL","MO","PDL","WO","EQL","FVG 50%","Round Number","Session L","DO","FVG edge"],optional:true,multi:true}
     ]},
   { key:"market", title:"2. MARKET STATE", color:"#8b5cf6",
     rules:"Bullish=P↑+OI↑ | Bearish=P↓+OI↑ | Squeeze=OI↓→⛔ wait resolution | Flat=OI flat→⛔",
@@ -219,7 +219,7 @@ function computeTradeCall() {
   return null;
 }
  
-// Draw Level type → strength mapping (O7.6)
+// Liq. level type → strength mapping (O7.6)
 const DRAW_LEVEL_STRENGTH = {
   "HTF Swing H":"Major","HTF Swing L":"Major",
   "PWH":"Major","PWL":"Major","MO":"Major",
@@ -302,7 +302,7 @@ function computeConviction() {
   // HTF triggers (new structure)
   if (state.weekly_bias === "Balanced") triggers++;
   if (state.daily_bias && state.weekly_bias && state.daily_bias !== state.weekly_bias) triggers++;
-  // Draw Level trigger — check level in trade direction AND if draw includes that side
+  // Liq. trigger — check level in trade direction AND if Target Liq. includes that side
   // Cancelled by Regime = Trend 3/3 (strong MO/WO/DO alignment compensates for weak target)
   const dirForDraw = computeTradeCall();
   const drawIncludesAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
@@ -506,7 +506,7 @@ function render() {
       const htfPos = {
         weekly_bias: [1, 1], daily_bias: [1, 2], regime: [1, 3],
         liq_draw: [2, 1], swept: [2, 2], extreme: [2, 3, 2],
-        barrier_above: [3, 1], barrier_below: [3, 2], draw_level_above: [3, 3], draw_level_below: [3, 4]
+        draw_level_above: [3, 1], draw_level_below: [3, 2], barrier_above: [3, 3], barrier_below: [3, 4]
       };
       let fieldStyle = '';
       if (g.key === "htf" && htfPos[f.id]) {
@@ -522,13 +522,13 @@ function render() {
         weekly_bias: "<strong>Weekly Bias</strong>\nPrimary bias (8-12 weeks).\nDetermines trade Direction.",
         daily_bias: "<strong>Daily Bias</strong>\nModifier for conviction.\nIf differs from Weekly → conviction -1\n(Weekly still wins the direction).",
         liq_draw: "<strong>Target Liq. — direction of target liquidity</strong>\nWhere market is pulled.\n• Above — upside target\n• Below — downside target\n• Both — balance state",
-        draw_level_above: "<strong>Draw Level Above</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)",
-        draw_level_below: "<strong>Draw Level Below</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)",
+        draw_level_above: "<strong>Liq. Above — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)",
+        draw_level_below: "<strong>Liq. Below — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)",
         swept: "<strong>Recently Swept</strong>\nLiquidity taken in last 1-3 candles.\n\n• Same direction as Draw → Post-sweep (-1)\n  (target liquidity already taken — exhaustion warning)\n• Both sides → Transition (NO TRADE)\n• If sweep was long ago — leave empty",
-        extreme: "<strong>Near HTF Extreme</strong>\nMulti-select. Pick all levels where price is NOW.\n\nRequired for ANY Reversal trade:\n• Regime=Neutral → Reversal\n• Recently Swept → Reversal\n• Weekly Bias conflict → Reversal\n\nIf Mode=Reversal and Extreme empty → 🔴 BLOCKER\n\nEnabled when Mode = Reversal.",
+        extreme: "<strong>Near HTF Extreme</strong>\nВ КАКОЙ HTF reversal-зоне цена СЕЙЧАС.\nНЕ \"ближайший уровень к цене\", а extreme откуда институционалы разворачивают рынок.\n\nПримеры valid extreme:\n• PDH/PDL — при trending day\n• PWH/PWL — при Weekly range boundaries\n• HTF Swing — при deep correction\n• EQH/EQL — contested liquidity zones\n• WO — при weekly rebalance\n\nЕсли цена в midrange (не в HTF extreme) → оставь пустым → blocker блокирует reversal.\n\nRequired for ANY Reversal mode (Neutral regime / Swept / Bias conflict).\n\nEnabled when Mode = Reversal.",
         barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>2+ of [OB / Wick SNR / Round Number]:</strong> Strong (-2)\n• <strong>OB / Wick SNR / Round Number alone:</strong> Medium (-1)\n• <strong>HTF FVG alone:</strong> Weak (0, usually passes)\n\nHTF FVG не усиливает комбинацию.\nOnly affects Long trades.",
         barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.",
-        regime: "<strong>Day Regime (MO/WO/DO alignment)</strong>\n• <strong>Trend 3/3:</strong> Max risk, Continuation\n  → Cancels Draw Level Minor trigger\n• <strong>Moderate 2/3:</strong> Normal risk (-1 conviction)\n• <strong>Neutral:</strong> Low risk, Reversal only"
+        regime: "<strong>Day Regime (MO/WO/DO alignment)</strong>\n• <strong>Trend 3/3:</strong> Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Moderate 2/3:</strong> Normal risk (-1 conviction)\n• <strong>Neutral:</strong> Low risk, Reversal only"
       };
       // Unified disable logic for conditional fields
       const mode = computeMode();
@@ -549,7 +549,7 @@ function render() {
         const clickFn = f.multi ? "pickMulti" : "pick";
         html += `<button class="${cls}"${disabledAttr} onclick="${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')">${o}</button>`;
       }
-      // Computed display for Draw Level and Barrier fields
+      // Computed display for Liq. and Barrier fields
       if ((f.id === "draw_level_above" || f.id === "draw_level_below")) {
         const arr = Array.isArray(state[f.id]) ? state[f.id] : (state[f.id] ? [state[f.id]] : []);
         if (arr.length) {
@@ -786,7 +786,7 @@ function render() {
   else vEl.innerHTML = '';
 }
  
-// Clear state for fields that become disabled based on Liq. Draw + Mode
+// Clear state for fields that become disabled based on Target Liq. + Mode
 function syncDisabledFields() {
   const draw = state.liq_draw;
   // Draw-based disable
@@ -981,8 +981,8 @@ async function skipToNotion() {
   if (Array.isArray(state.extreme) && state.extreme.length) props["Near HTF Extreme"] = state.extreme;
   if (Array.isArray(state.barrier_above) && state.barrier_above.length) props["Barrier Above"] = state.barrier_above;
   if (Array.isArray(state.barrier_below) && state.barrier_below.length) props["Barrier Below"] = state.barrier_below;
-  if (Array.isArray(state.draw_level_above) && state.draw_level_above.length) props["Draw Level Above"] = state.draw_level_above;
-  if (Array.isArray(state.draw_level_below) && state.draw_level_below.length) props["Draw Level Below"] = state.draw_level_below;
+  if (Array.isArray(state.draw_level_above) && state.draw_level_above.length) props["Liq. Above"] = state.draw_level_above;
+  if (Array.isArray(state.draw_level_below) && state.draw_level_below.length) props["Liq. Below"] = state.draw_level_below;
   const dir = computeDirection(); if (dir) props["Direction"] = dir;
   const {label: convSave, triggers: trigSave} = computeConviction();
   if (convSave) props["Conviction"] = convSave + " (-" + trigSave + ")";
@@ -1052,8 +1052,8 @@ async function saveToNotion() {
   if (Array.isArray(state.extreme) && state.extreme.length) props["Near HTF Extreme"] = state.extreme;
   if (Array.isArray(state.barrier_above) && state.barrier_above.length) props["Barrier Above"] = state.barrier_above;
   if (Array.isArray(state.barrier_below) && state.barrier_below.length) props["Barrier Below"] = state.barrier_below;
-  if (Array.isArray(state.draw_level_above) && state.draw_level_above.length) props["Draw Level Above"] = state.draw_level_above;
-  if (Array.isArray(state.draw_level_below) && state.draw_level_below.length) props["Draw Level Below"] = state.draw_level_below;
+  if (Array.isArray(state.draw_level_above) && state.draw_level_above.length) props["Liq. Above"] = state.draw_level_above;
+  if (Array.isArray(state.draw_level_below) && state.draw_level_below.length) props["Liq. Below"] = state.draw_level_below;
   const modeSave = computeMode();
   if (modeSave) props["Trade Mode"] = modeSave;
  

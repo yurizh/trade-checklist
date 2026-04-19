@@ -151,11 +151,11 @@ const GROUPS = [
       {id:"regime",label:"Regime",opts:["Trend 3/3","Mod 2/3","Neutral"]},
       {id:"liq_draw",label:"Liq. Draw",opts:["Above","Below","Both"]},
       {id:"swept",label:"Recently Swept",opts:["Above","Below","Both"],optional:true},
-      {id:"barrier_above",label:"Barrier Above",opts:["HTF FVG","Wick SNR","OB"],optional:true,multi:true},
-      {id:"barrier_below",label:"Barrier Below",opts:["HTF FVG","Wick SNR","OB"],optional:true,multi:true},
+      {id:"barrier_above",label:"Barrier Above",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
+      {id:"barrier_below",label:"Barrier Below",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
       {id:"extreme",label:"Near HTF Extreme",opts:["PDH","PDL","EQH","EQL","WO","HTF Swing"],optional:true,multi:true},
-      {id:"draw_level_above",label:"Draw Level Above",opts:["Major","Medium","Minor"],optional:true},
-      {id:"draw_level_below",label:"Draw Level Below",opts:["Major","Medium","Minor"],optional:true}
+      {id:"draw_level_above",label:"Draw Level Above",opts:["HTF Swing H","PWH","MO","PDH","WO","EQH","FVG 50%","Round Number","Session H","DO","FVG edge"],optional:true,multi:true},
+      {id:"draw_level_below",label:"Draw Level Below",opts:["HTF Swing L","PWL","MO","PDL","WO","EQL","FVG 50%","Round Number","Session L","DO","FVG edge"],optional:true,multi:true}
     ]},
   { key:"market", title:"2. MARKET STATE", color:"#8b5cf6",
     rules:"Bullish=P↑+OI↑ | Bearish=P↓+OI↑ | Squeeze=OI↓→⛔ wait resolution | Flat=OI flat→⛔",
@@ -219,13 +219,31 @@ function computeTradeCall() {
   return null;
 }
  
+// Draw Level type → strength mapping (O7.6)
+const DRAW_LEVEL_STRENGTH = {
+  "HTF Swing H":"Major","HTF Swing L":"Major",
+  "PWH":"Major","PWL":"Major","MO":"Major",
+  "PDH":"Medium","PDL":"Medium",
+  "WO":"Medium","EQH":"Medium","EQL":"Medium","FVG 50%":"Medium","Round Number":"Medium",
+  "Session H":"Minor","Session L":"Minor","DO":"Minor","FVG edge":"Minor"
+};
+function drawLevelStrength(type) { return DRAW_LEVEL_STRENGTH[type] || null; }
+ 
 function barrierStrength(arr) {
   if (!Array.isArray(arr) || !arr.length) return 0;
-  const hasOB = arr.includes("OB");
-  const hasWick = arr.includes("Wick SNR");
-  if (hasOB && hasWick) return 2;
-  if (hasOB || hasWick) return 1;
+  const strong = arr.filter(t => t !== "HTF FVG");
+  if (strong.length >= 2) return 2;
+  if (strong.length === 1) return 1;
   return 0;
+}
+ 
+function barrierStrengthLabel(arr) {
+  if (!Array.isArray(arr) || !arr.length) return null;
+  const t = barrierStrength(arr);
+  if (t === 0) return {label:"Weak", trigger:0};
+  if (t === 1) return {label:"Medium", trigger:-1};
+  if (t === 2) return {label:"Strong", trigger:-2};
+  return null;
 }
  
 function computeLiquidityPhase() {
@@ -290,8 +308,10 @@ function computeConviction() {
   const drawIncludesAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
   const drawIncludesBelow = state.liq_draw === "Below" || state.liq_draw === "Both";
   const isTrendDay = state.regime === "Trend 3/3";
-  if (!isTrendDay && dirForDraw === "Long" && drawIncludesAbove && state.draw_level_above === "Minor") triggers++;
-  else if (!isTrendDay && dirForDraw === "Short" && drawIncludesBelow && state.draw_level_below === "Minor") triggers++;
+  const dlAboveArr = Array.isArray(state.draw_level_above) ? state.draw_level_above : (state.draw_level_above ? [state.draw_level_above] : []);
+  const dlBelowArr = Array.isArray(state.draw_level_below) ? state.draw_level_below : (state.draw_level_below ? [state.draw_level_below] : []);
+  if (!isTrendDay && dirForDraw === "Long" && drawIncludesAbove && dlAboveArr.some(t => drawLevelStrength(t) === "Minor")) triggers++;
+  else if (!isTrendDay && dirForDraw === "Short" && drawIncludesBelow && dlBelowArr.some(t => drawLevelStrength(t) === "Minor")) triggers++;
   const phase = computeLiquidityPhase();
   if (phase === "Post-sweep↓") triggers++;
   
@@ -489,11 +509,11 @@ function render() {
         weekly_bias: "<strong>Weekly Bias</strong>\nPrimary bias (8-12 weeks).\nDetermines trade Direction.",
         daily_bias: "<strong>Daily Bias</strong>\nModifier for conviction.\nIf differs from Weekly → conviction -1\n(Weekly still wins the direction).",
         liq_draw: "<strong>Liquidity Draw</strong>\nDirection the market is pulled (target).\n• Above — upside target\n• Below — downside target\n• Both — balance state",
-        draw_level_above: "<strong>Draw Level Above — target strength</strong>\nСила уровня ликвидности сверху.\n\n• <strong>Major:</strong> HTF Swing, PDH, PWH\n• <strong>Medium:</strong> EQH, WO, MO, FVG 50%\n• <strong>Minor:</strong> Session H, Day Open, FVG edge\n\nLong trade + Minor → conviction -1",
-        draw_level_below: "<strong>Draw Level Below — target strength</strong>\nСила уровня ликвидности снизу.\n\n• <strong>Major:</strong> HTF Swing, PDL, PWL\n• <strong>Medium:</strong> EQL, WO, MO, FVG 50%\n• <strong>Minor:</strong> Session L, Day Open, FVG edge\n\nShort trade + Minor → conviction -1",
+        draw_level_above: "<strong>Draw Level Above</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)",
+        draw_level_below: "<strong>Draw Level Below</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)",
         swept: "<strong>Recently Swept</strong>\nLiquidity taken in last 1-3 candles.\n\n• Same direction as Draw → Post-sweep (-1)\n  (target liquidity already taken — exhaustion warning)\n• Both sides → Transition (NO TRADE)\n• If sweep was long ago — leave empty",
         extreme: "<strong>Near HTF Extreme</strong>\nMulti-select. Pick all levels where price is NOW.\n\nRequired for ANY Reversal trade:\n• Regime=Neutral → Reversal\n• Recently Swept → Reversal\n• Weekly Bias conflict → Reversal\n\nIf Mode=Reversal and Extreme empty → 🔴 BLOCKER\n\nEnabled when Mode = Reversal.",
-        barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>OB + Wick SNR together:</strong> strongest (-2)\n• <strong>OB alone:</strong> structural (-1)\n• <strong>Wick SNR alone:</strong> proven reaction (-1)\n• <strong>HTF FVG:</strong> weakest, usually passes (no impact)\n\nFVG только W/D таймфрейма.\nLTF FVG (1H/4H) не маркируем — слишком слабые.\n\nOnly affects Long trades.",
+        barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>2+ of [OB / Wick SNR / Round Number]:</strong> Strong (-2)\n• <strong>OB / Wick SNR / Round Number alone:</strong> Medium (-1)\n• <strong>HTF FVG alone:</strong> Weak (0, usually passes)\n\nHTF FVG не усиливает комбинацию.\nOnly affects Long trades.",
         barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.",
         regime: "<strong>Day Regime (MO/WO/DO alignment)</strong>\n• <strong>Trend 3/3:</strong> Max risk, Continuation\n  → Cancels Draw Level Minor trigger\n• <strong>Moderate 2/3:</strong> Normal risk (-1 conviction)\n• <strong>Neutral:</strong> Low risk, Reversal only"
       };
@@ -515,6 +535,25 @@ function render() {
         const disabledAttr = isDisabled ? " disabled" : "";
         const clickFn = f.multi ? "pickMulti" : "pick";
         html += `<button class="${cls}"${disabledAttr} onclick="${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')">${o}</button>`;
+      }
+      // Computed display for Draw Level and Barrier fields
+      if ((f.id === "draw_level_above" || f.id === "draw_level_below")) {
+        const arr = Array.isArray(state[f.id]) ? state[f.id] : (state[f.id] ? [state[f.id]] : []);
+        if (arr.length) {
+          // Show best (strongest) strength — presence of Major overrides
+          const strengths = arr.map(t => drawLevelStrength(t)).filter(Boolean);
+          const best = strengths.includes("Major") ? "Major" : strengths.includes("Medium") ? "Medium" : "Minor";
+          const sColor = best === "Major" ? "var(--green)" : best === "Medium" ? "var(--yellow, #ca8a04)" : "var(--red)";
+          const label = arr.length === 1 ? arr[0] : arr.join(", ");
+          html += `<div style="font-size:10px;margin-top:2px;color:var(--muted)">${label} → <span style="color:${sColor};font-weight:700">${best}</span></div>`;
+        }
+      }
+      if ((f.id === "barrier_above" || f.id === "barrier_below") && Array.isArray(state[f.id]) && state[f.id].length) {
+        const bl = barrierStrengthLabel(state[f.id]);
+        if (bl) {
+          const bColor = bl.trigger === 0 ? "var(--muted)" : bl.trigger === -1 ? "var(--yellow, #ca8a04)" : "var(--red)";
+          html += `<div style="font-size:10px;margin-top:2px;color:var(--muted)">→ <span style="color:${bColor};font-weight:700">${bl.label}</span> (${bl.trigger})</div>`;
+        }
       }
       html += `</div></div>`;
     }
@@ -571,8 +610,10 @@ function render() {
       const incAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
       const incBelow = state.liq_draw === "Below" || state.liq_draw === "Both";
       const isTrendDay = state.regime === "Trend 3/3";
-      if (!isTrendDay && call === "Long" && incAbove && state.draw_level_above === "Minor") htfTriggers.push("Minor↑");
-      else if (!isTrendDay && call === "Short" && incBelow && state.draw_level_below === "Minor") htfTriggers.push("Minor↓");
+      const dlAbove = Array.isArray(state.draw_level_above) ? state.draw_level_above : (state.draw_level_above ? [state.draw_level_above] : []);
+      const dlBelow = Array.isArray(state.draw_level_below) ? state.draw_level_below : (state.draw_level_below ? [state.draw_level_below] : []);
+      if (!isTrendDay && call === "Long" && incAbove && dlAbove.some(t => drawLevelStrength(t) === "Minor")) htfTriggers.push("Minor↑");
+      else if (!isTrendDay && call === "Short" && incBelow && dlBelow.some(t => drawLevelStrength(t) === "Minor")) htfTriggers.push("Minor↓");
       if (phase === "Post-sweep↓") htfTriggers.push("Post-sweep");
       if (call === "Long") {
         const s = barrierStrength(state.barrier_above);
@@ -840,8 +881,7 @@ const FIELD_MAP = {
   weekly_bias:["Weekly Bias",{Bullish:"Bullish",Bearish:"Bearish",Balanced:"Balanced"}],
   daily_bias:["Daily Bias",{Bullish:"Bullish",Bearish:"Bearish",Balanced:"Balanced"}],
   liq_draw:["Liquidity Draw",{Above:"Above",Below:"Below",Both:"Both"}],
-  draw_level_above:["Draw Level Above",{Major:"Major",Medium:"Medium",Minor:"Minor"}],
-  draw_level_below:["Draw Level Below",{Major:"Major",Medium:"Medium",Minor:"Minor"}],
+  // draw_level handled separately as multi_select arrays (see saveToNotion)
   swept:["Recently Swept",{None:"None",Above:"Above",Below:"Below",Both:"Both"}],
   extreme:["",null],
   barrier_above:["",null],
@@ -906,6 +946,8 @@ async function skipToNotion() {
   if (Array.isArray(state.extreme) && state.extreme.length) props["Near HTF Extreme"] = state.extreme;
   if (Array.isArray(state.barrier_above) && state.barrier_above.length) props["Barrier Above"] = state.barrier_above;
   if (Array.isArray(state.barrier_below) && state.barrier_below.length) props["Barrier Below"] = state.barrier_below;
+  if (Array.isArray(state.draw_level_above) && state.draw_level_above.length) props["Draw Level Above"] = state.draw_level_above;
+  if (Array.isArray(state.draw_level_below) && state.draw_level_below.length) props["Draw Level Below"] = state.draw_level_below;
   const dir = computeDirection(); if (dir) props["Direction"] = dir;
   const {label: convSave, triggers: trigSave} = computeConviction();
   if (convSave) props["Conviction"] = convSave + " (-" + trigSave + ")";
@@ -975,6 +1017,8 @@ async function saveToNotion() {
   if (Array.isArray(state.extreme) && state.extreme.length) props["Near HTF Extreme"] = state.extreme;
   if (Array.isArray(state.barrier_above) && state.barrier_above.length) props["Barrier Above"] = state.barrier_above;
   if (Array.isArray(state.barrier_below) && state.barrier_below.length) props["Barrier Below"] = state.barrier_below;
+  if (Array.isArray(state.draw_level_above) && state.draw_level_above.length) props["Draw Level Above"] = state.draw_level_above;
+  if (Array.isArray(state.draw_level_below) && state.draw_level_below.length) props["Draw Level Below"] = state.draw_level_below;
   const modeSave = computeMode();
   if (modeSave) props["Trade Mode"] = modeSave;
  

@@ -105,6 +105,13 @@
     <input class="mini-input flex" id="cfg_token" type="password" placeholder="ntn_..." oninput="saveCfg()">
   </div>
   <div style="font-size:10px;color:var(--muted);margin-top:4px">Database ID: 24933910ce304b65a1f50b137d7392ae (auto)</div>
+  <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-weight:700;font-size:11px;color:var(--muted)">DISPLAY SETTINGS</div>
+  <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
+    <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:12px;">
+      <input type="checkbox" id="cfg_verbose" onchange="saveCfg();render()">
+      <span>Verbose verdict details (O7.11 — shows why & what cancelled)</span>
+    </label>
+  </div>
 </div>
 <div id="saveStatus" style="display:none;font-size:12px;padding:4px 0;margin-bottom:4px;"></div>
 <div class="flow">
@@ -124,10 +131,6 @@
 <div id="checklist"></div>
  
 <div class="footer">
-  <div class="footer-row" style="margin-bottom:4px">
-    <span class="lbl">Notes</span>
-    <input class="mini-input flex" id="notes" placeholder="observations, context..." oninput="localStorage.setItem('tc_notes',this.value)">
-  </div>
   <div class="footer-row">
     <span class="lbl">Screenshot</span>
     <input class="mini-input flex" id="screenshot" placeholder="https://..." oninput="localStorage.setItem('tc_screenshot',this.value)">
@@ -148,12 +151,12 @@ const GROUPS = [
     fields:[
       {id:"weekly_bias",label:"Weekly Bias",opts:["Bullish","Bearish","Balanced"]},
       {id:"daily_bias",label:"Daily Bias",opts:["Bullish","Bearish","Balanced"]},
-      {id:"regime",label:"Regime",opts:["Trend 3/3","Mod 2/3","Neutral"]},
+      {id:"regime",label:"Regime",opts:["Trend 3/3 Bull","Trend 3/3 Bear","Mod 2/3 Bull","Mod 2/3 Bear","Neutral"]},
       {id:"liq_draw",label:"Target Liq.",opts:["Above","Below","Both"]},
       {id:"swept",label:"Recently Swept",opts:["Above","Below","Both"],optional:true},
       {id:"barrier_above",label:"Barrier Above",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
       {id:"barrier_below",label:"Barrier Below",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
-      {id:"extreme",label:"Near HTF Extreme",opts:["PDH","PDL","EQH","EQL","WO","HTF Swing"],optional:true,multi:true},
+      {id:"extreme",label:"Near HTF Extreme",opts:["HTF Swing","PMH","PML","PWH","PWL","PDH","PDL","EQH","EQL","MO"],optional:true,multi:true},
       {id:"draw_level_above",label:"Liq. Above",opts:["HTF Swing H","PWH","MO","PDH","WO","EQH","FVG 50%","Round Number","Session H","DO","FVG edge"],optional:true,multi:true},
       {id:"draw_level_below",label:"Liq. Below",opts:["HTF Swing L","PWL","MO","PDL","WO","EQL","FVG 50%","Round Number","Session L","DO","FVG edge"],optional:true,multi:true}
     ]},
@@ -229,6 +232,14 @@ const DRAW_LEVEL_STRENGTH = {
 };
 function drawLevelStrength(type) { return DRAW_LEVEL_STRENGTH[type] || null; }
  
+// HTF Extreme type → strength mapping (H1.18)
+// Major = Weekly+ structural / Medium = Daily structural + MO
+const EXTREME_STRENGTH = {
+  "HTF Swing":"Major","PMH":"Major","PML":"Major","PWH":"Major","PWL":"Major",
+  "PDH":"Medium","PDL":"Medium","EQH":"Medium","EQL":"Medium","MO":"Medium"
+};
+function extremeStrength(type) { return EXTREME_STRENGTH[type] || null; }
+ 
 function barrierStrength(arr) {
   if (!Array.isArray(arr) || !arr.length) return 0;
   const strong = arr.filter(t => t !== "HTF FVG");
@@ -299,12 +310,28 @@ function computeDirection() {
   return null;
 }
  
-function computeRisk() {
-  const r = state.regime;
+// Regime helpers — extract strength (Trend 3/3 / Mod 2/3 / Neutral) and direction (Bull / Bear / null)
+// Backward compatible with legacy "Trend 3/3" / "Mod 2/3" (no direction suffix)
+function regimeStrength(r) {
   if (!r) return null;
-  if (r === "Trend 3/3") return "Max";
-  if (r === "Mod 2/3") return "Normal";
-  if (r === "Neutral") return "Low";
+  if (r.startsWith("Trend 3/3")) return "Trend 3/3";
+  if (r.startsWith("Mod 2/3")) return "Mod 2/3";
+  if (r === "Neutral") return "Neutral";
+  return null;
+}
+function regimeDirection(r) {
+  if (!r) return null;
+  if (r.endsWith(" Bull")) return "Bull";
+  if (r.endsWith(" Bear")) return "Bear";
+  return null; // Neutral or legacy direction-less values
+}
+ 
+function computeRisk() {
+  const s = regimeStrength(state.regime);
+  if (!s) return null;
+  if (s === "Trend 3/3") return "Max";
+  if (s === "Mod 2/3") return "Normal";
+  if (s === "Neutral") return "Low";
   return null;
 }
  
@@ -322,7 +349,7 @@ function computeConviction() {
   const dirForDraw = computeTradeCall();
   const drawIncludesAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
   const drawIncludesBelow = state.liq_draw === "Below" || state.liq_draw === "Both";
-  const isTrendDay = state.regime === "Trend 3/3";
+  const isTrendDay = regimeStrength(state.regime) === "Trend 3/3";
   const dlAboveArr = Array.isArray(state.draw_level_above) ? state.draw_level_above : (state.draw_level_above ? [state.draw_level_above] : []);
   const dlBelowArr = Array.isArray(state.draw_level_below) ? state.draw_level_below : (state.draw_level_below ? [state.draw_level_below] : []);
   // For Both direction (Weekly Balanced): check Minor on Liq. side(s) that match Target Liq.
@@ -359,7 +386,7 @@ function computeConviction() {
   }
   
   // Regime trigger
-  if (state.regime === "Mod 2/3") triggers++;
+  if (regimeStrength(state.regime) === "Mod 2/3") triggers++;
   
   // Market State triggers
   const ms = computeMarketState();
@@ -471,12 +498,259 @@ function computeMode() {
   if (mktState === "L.Squeeze⛔" || mktState === "S.Squeeze⛔") return "No Trade";
   
   // Standard overrides
-  if (regime === "Neutral") return "Reversal";
+  if (regimeStrength(regime) === "Neutral") return "Reversal";
   if (session === "Sweep") return "Reversal";
   if (swept === "Above" || swept === "Below") return "Reversal";
   if (computeOI15M() === "Flat↓") return "Reversal";
   
   return "Continuation";
+}
+ 
+// O7.11 — Verbose HTF verdict block (collapsed details under status line)
+// Shows every decision input + which triggers cancelled/not-applied + blockers + warnings placeholder
+function renderVerboseHTF() {
+  const S = state;
+  const call = computeTradeCall();
+  const phase = computeLiquidityPhase();
+  const mode = computeMode();
+  const risk = computeRisk();
+  const regStr = regimeStrength(S.regime);
+  const regDir = regimeDirection(S.regime);
+  const swept = S.swept;
+ 
+  // Collect trigger status: applied / cancelled / passed (✓)
+  const triggerLines = [];
+  // W.Bal
+  if (S.weekly_bias === "Balanced") triggerLines.push({status:"applied", label:"W.Bal", note:"Weekly Bias = Balanced"});
+  else if (S.weekly_bias) triggerLines.push({status:"pass", label:"W = "+S.weekly_bias, note:"no W.Bal trigger"});
+  // W≠D
+  if (S.weekly_bias && S.daily_bias) {
+    if (S.daily_bias !== S.weekly_bias) triggerLines.push({status:"applied", label:"W≠D", note:S.weekly_bias+" / "+S.daily_bias});
+    else triggerLines.push({status:"pass", label:"D = W", note:"no W≠D trigger"});
+  }
+  // Phase Post-sweep
+  if (phase === "Post-sweep↓") triggerLines.push({status:"applied", label:"Post-sweep", note:"Target side was swept"});
+  else if (phase === "Accumulation") triggerLines.push({status:"pass", label:"Phase clean", note:"Accumulation, no Post-sweep"});
+  else if (phase === "Transition⛔") triggerLines.push({status:"blocker", label:"Transition", note:"Both sides swept — No Trade"});
+  // Minor Liq. check (with Trend cancellation)
+  const isTrend = regStr === "Trend 3/3";
+  const incAbove = S.liq_draw === "Above" || S.liq_draw === "Both";
+  const incBelow = S.liq_draw === "Below" || S.liq_draw === "Both";
+  const dlAbove = Array.isArray(S.draw_level_above) ? S.draw_level_above : (S.draw_level_above ? [S.draw_level_above] : []);
+  const dlBelow = Array.isArray(S.draw_level_below) ? S.draw_level_below : (S.draw_level_below ? [S.draw_level_below] : []);
+  const minorUp = incAbove && dlAbove.some(t => drawLevelStrength(t) === "Minor");
+  const minorDn = incBelow && dlBelow.some(t => drawLevelStrength(t) === "Minor");
+  const hasMinor = minorUp || minorDn;
+  if (hasMinor && isTrend) {
+    const which = [minorUp?"↑":"", minorDn?"↓":""].filter(Boolean).join("");
+    triggerLines.push({status:"cancelled", label:"Minor Liq. "+which, note:"cancelled by Trend 3/3"});
+  } else if (hasMinor) {
+    triggerLines.push({status:"applied", label:"Minor Liq.", note:"target has Minor-strength type"});
+  } else if (S.liq_draw) {
+    triggerLines.push({status:"pass", label:"Liq. ≥ Medium", note:"no Minor trigger"});
+  }
+  // Barrier
+  let barrSide = null, barrArr = null;
+  if (call === "Long") { barrSide = "↑"; barrArr = S.barrier_above; }
+  else if (call === "Short") { barrSide = "↓"; barrArr = S.barrier_below; }
+  else if (call === "Both↓") {
+    if (S.liq_draw === "Above") { barrSide = "↑"; barrArr = S.barrier_above; }
+    else if (S.liq_draw === "Below") { barrSide = "↓"; barrArr = S.barrier_below; }
+  }
+  if (barrSide && Array.isArray(barrArr) && barrArr.length) {
+    const bs = barrierStrength(barrArr);
+    if (bs === 2) triggerLines.push({status:"applied", label:"Barr"+barrSide+"×2", note:"2+ of [Wick/OB/Round] = -2"});
+    else if (bs === 1) triggerLines.push({status:"applied", label:"Barr"+barrSide, note:barrArr.join(", ")+" = Medium -1"});
+    else triggerLines.push({status:"pass", label:"Barr"+barrSide+" = weak", note:"HTF FVG only = 0 (no trigger)"});
+  } else if (barrSide) {
+    triggerLines.push({status:"pass", label:"Barr"+barrSide+" empty", note:"no barrier"});
+  }
+  // Regime trigger
+  if (regStr === "Mod 2/3") triggerLines.push({status:"applied", label:"Mod 2/3", note:"Regime moderate"});
+  else if (regStr === "Trend 3/3") triggerLines.push({status:"pass", label:"Regime = Trend", note:"no Mod trigger"});
+  else if (regStr === "Neutral") triggerLines.push({status:"applied", label:"Neutral", note:"forces Reversal mode"});
+  // Market State triggers
+  const ms = computeMarketState();
+  if (ms === "L.Squeeze⛔" || ms === "S.Squeeze⛔" || ms === "Flat⛔") triggerLines.push({status:"applied", label:ms, note:"Market State trigger"});
+  // OI triggers
+  const oi15 = computeOI15M();
+  if (oi15 && oi15.includes("⛔")) triggerLines.push({status:"applied", label:"OI "+oi15, note:"OI stop"});
+  else if (oi15 && oi15.includes("↓")) triggerLines.push({status:"applied", label:"OI "+oi15, note:"OI reduces"});
+ 
+  // Blockers
+  const blockers = [];
+  if (phase === "Transition⛔") blockers.push("Phase = Transition (both sides swept)");
+  if (mode === "Reversal" && (!Array.isArray(S.extreme) || !S.extreme.length)) blockers.push("Reversal mode without Extreme selected");
+  const trigCount = triggerLines.filter(t => t.status === "applied").length;
+  if (trigCount >= 3) blockers.push("Triggers ≥ 3 (Too Many Risks)");
+ 
+  // Warnings placeholder (H1.14 / H1.20 / H1.12.1 will inject here)
+  const warnings = [];
+ 
+  // Conviction summary
+  const convLabel = trigCount <= 1 ? "High" : trigCount === 2 ? "Standard" : "Low";
+  const dotExplain = phase === "Transition⛔" ? "red (Transition blocker)" :
+    convLabel === "High" ? "green (High conviction)" :
+    convLabel === "Standard" ? "yellow (Standard conviction)" : "red (Low conviction)";
+ 
+  // Build HTML
+  const color = (status) => {
+    if (status === "applied") return "var(--red)";
+    if (status === "cancelled") return "var(--muted)";
+    if (status === "blocker") return "var(--red)";
+    if (status === "pass") return "var(--green)";
+    return "var(--muted)";
+  };
+  const icon = (status) => {
+    if (status === "applied") return "−1";
+    if (status === "cancelled") return "⊘";
+    if (status === "blocker") return "⛔";
+    if (status === "pass") return "✓";
+    return "·";
+  };
+ 
+  let out = "";
+  out += `<div style="margin-top:6px">`;
+  out += `<details style="font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6">`;
+  out += `<summary style="cursor:pointer;color:var(--muted);font-size:11px;padding:2px 0;user-select:none">▼ Details</summary>`;
+  out += `<div style="padding:8px 6px 4px 6px;background:var(--bg-alt,rgba(0,0,0,0.02));border-radius:4px;margin-top:4px">`;
+ 
+  // Direction
+  out += `<div style="margin-bottom:6px"><b>Direction:</b> ${call||"—"}</div>`;
+  out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px">`;
+  if (S.weekly_bias && S.daily_bias) {
+    const aligned = S.weekly_bias === S.daily_bias;
+    out += `<span style="color:${aligned?'var(--green)':'var(--red)'}">${aligned?'✓':'−1'}</span> Weekly ${S.weekly_bias} · Daily ${S.daily_bias} · ${aligned?'aligned':'conflict'}<br>`;
+  }
+  if (risk) out += `<span style="color:var(--muted)">risk:</span> ${risk} (Regime = ${regStr||"—"})`;
+  out += `</div>`;
+ 
+  // Mode
+  out += `<div style="margin-bottom:6px"><b>Mode:</b> ${mode||"—"}</div>`;
+  out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px">`;
+  if (mode === "Continuation") {
+    out += `<span style="color:var(--green)">✓</span> Regime = ${S.regime||"—"} (supports continuation)<br>`;
+    out += `<span style="color:var(--green)">✓</span> ${swept?('Swept = '+swept):'Not Swept'}<br>`;
+    if (phase) out += `<span style="color:var(--green)">✓</span> Phase = ${phase} `;
+  } else if (mode === "Reversal") {
+    if (regStr === "Neutral") out += `<span style="color:var(--red)">−1</span> Regime = Neutral → forces Reversal<br>`;
+    if (swept === "Above" || swept === "Below") out += `<span style="color:var(--red)">−1</span> Recently Swept = ${swept}<br>`;
+    if (S.session === "Sweep") out += `<span style="color:var(--red)">−1</span> Session = Sweep<br>`;
+  } else if (mode === "No Trade") {
+    out += `<span style="color:var(--red)">⛔</span> No Trade — see Blockers`;
+  }
+  out += `</div>`;
+ 
+  // Phase
+  out += `<div style="margin-bottom:6px"><b>Phase:</b> ${phase||"—"}</div>`;
+  out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px">`;
+  if (S.liq_draw) out += `<span style="color:var(--green)">✓</span> Target Liq. = ${S.liq_draw}<br>`;
+  if (dlAbove.length) out += `<span style="color:var(--muted)">  ·</span> Above: ${dlAbove.join(", ")}<br>`;
+  if (dlBelow.length) out += `<span style="color:var(--muted)">  ·</span> Below: ${dlBelow.join(", ")}<br>`;
+  if (swept && swept !== "None") out += `<span style="color:var(--yellow, #ca8a04)">−1</span> Recently Swept = ${swept}<br>`;
+  else out += `<span style="color:var(--green)">✓</span> Not recently swept`;
+  out += `</div>`;
+ 
+  // Conviction
+  out += `<div style="margin-bottom:6px"><b>Conviction:</b> ${convLabel} (${trigCount} trigger${trigCount===1?"":"s"})</div>`;
+  out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px">`;
+  for (const t of triggerLines) {
+    out += `<span style="color:${color(t.status)};display:inline-block;min-width:22px;text-align:center">${icon(t.status)}</span> <b>${t.label}</b> <span style="color:var(--muted);margin-left:6px">${t.note}</span><br>`;
+  }
+  out += `</div>`;
+ 
+  // Extreme
+  out += `<div style="margin-bottom:6px"><b>Extreme:</b> `;
+  if (mode === "Reversal") {
+    if (Array.isArray(S.extreme) && S.extreme.length) {
+      const strengths = S.extreme.map(t => extremeStrength(t)).filter(Boolean);
+      const best = strengths.includes("Major") ? "Major" : strengths.length ? "Medium" : "—";
+      out += `${S.extreme.join(", ")} → ${best}`;
+    } else {
+      out += `<span style="color:var(--red)">REQUIRED (empty → blocker)</span>`;
+    }
+  } else {
+    out += `not required (Mode=${mode||"—"})`;
+  }
+  out += `</div>`;
+ 
+  // Blockers
+  out += `<div style="margin-top:10px;margin-bottom:6px"><b>Blockers:</b> `;
+  if (blockers.length) {
+    out += `<span style="color:var(--red)">${blockers.length}</span></div>`;
+    out += `<div style="padding-left:12px;color:var(--red);margin-bottom:8px">`;
+    for (const b of blockers) out += `⛔ ${b}<br>`;
+    out += `</div>`;
+  } else {
+    out += `<span style="color:var(--green)">none</span></div>`;
+  }
+ 
+  // Warnings
+  out += `<div style="margin-bottom:6px"><b>Warnings:</b> `;
+  if (warnings.length) {
+    out += `<span style="color:var(--yellow, #ca8a04)">${warnings.length}</span></div>`;
+    out += `<div style="padding-left:12px;color:var(--yellow, #ca8a04);margin-bottom:4px">`;
+    for (const w of warnings) out += `⚠ ${w}<br>`;
+    out += `</div>`;
+  } else {
+    out += `<span style="color:var(--muted)">none</span></div>`;
+    out += `<div style="padding-left:12px;color:var(--muted);font-size:10px;margin-bottom:4px;font-style:italic">H1.14 / H1.20 / H1.12.1 detection will inject here</div>`;
+  }
+ 
+  // Status dot explain
+  out += `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--border);color:var(--muted)"><b>Status dot:</b> ${dotExplain}</div>`;
+ 
+  out += `</div></details></div>`;
+  return out;
+}
+ 
+// H1.19 — Notes textarea auto-grow as content increases
+function autoGrowNotes(el) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 300) + "px";
+}
+ 
+// H1.19 — T1/T2 template: auto-fill Notes with current Liq./Barrier selection + verdict + blank template
+function insertT1T2Template() {
+  const notesEl = document.getElementById("notes");
+  if (!notesEl) return;
+  const S = state;
+  const lines = [];
+  // Targets section — only sides that have selection
+  const dlAbove = Array.isArray(S.draw_level_above) ? S.draw_level_above : (S.draw_level_above ? [S.draw_level_above] : []);
+  const dlBelow = Array.isArray(S.draw_level_below) ? S.draw_level_below : (S.draw_level_below ? [S.draw_level_below] : []);
+  if (dlAbove.length) lines.push("Targets (Above): " + dlAbove.join(", "));
+  if (dlBelow.length) lines.push("Targets (Below): " + dlBelow.join(", "));
+  // Barriers — only non-empty
+  const bAbove = Array.isArray(S.barrier_above) ? S.barrier_above : (S.barrier_above ? [S.barrier_above] : []);
+  const bBelow = Array.isArray(S.barrier_below) ? S.barrier_below : (S.barrier_below ? [S.barrier_below] : []);
+  if (bAbove.length) lines.push("Barriers (Above): " + bAbove.join(", "));
+  if (bBelow.length) lines.push("Barriers (Below): " + bBelow.join(", "));
+  // Extreme — if selected
+  const ext = Array.isArray(S.extreme) ? S.extreme : (S.extreme ? [S.extreme] : []);
+  if (ext.length) lines.push("Extreme: " + ext.join(", "));
+  // Current verdict snapshot
+  const call = computeTradeCall();
+  const mode = computeMode();
+  const risk = computeRisk();
+  // Quick conviction label from main pipeline
+  const conv = computeConviction();
+  const convLabel = conv && conv.label ? conv.label : (conv && conv.triggers !== undefined ? (conv.triggers <= 1 ? "High" : conv.triggers === 2 ? "Standard" : "Low") : "—");
+  const verdictParts = [];
+  if (call) verdictParts.push(call);
+  if (mode) verdictParts.push(mode);
+  if (convLabel && convLabel !== "—") verdictParts.push(convLabel);
+  if (risk) verdictParts.push(risk + " risk");
+  if (verdictParts.length) lines.push("System: " + verdictParts.join(" · "));
+  // Template block (user fills in)
+  const templateBlock = "―\nT1: \nT2: \nBarrier position: \nMy decision: \nDeviation: ";
+  const newBlock = lines.join("\n") + "\n" + templateBlock;
+  // Append mode: if notes already has content, separate with newlines
+  const existing = notesEl.value.trim();
+  notesEl.value = existing ? existing + "\n\n" + newBlock : newBlock;
+  localStorage.setItem("tc_notes", notesEl.value);
+  autoGrowNotes(notesEl);
+  notesEl.focus();
 }
  
 function render() {
@@ -545,16 +819,16 @@ function render() {
       }
       // Tooltips
       const tooltips = {
-        weekly_bias: "<strong>Weekly Bias</strong>\nPrimary bias (8-12 weeks).\nDetermines trade Direction.",
-        daily_bias: "<strong>Daily Bias</strong>\nModifier for conviction.\nIf differs from Weekly → conviction -1\n(Weekly still wins the direction).",
+        weekly_bias: "<strong>Weekly Bias — primary structural direction</strong>\nLookback: <strong>8-12 weekly candles</strong> (~2-3 months).\n\nМетодика:\n• HH + HL → Bullish\n• LH + LL → Bearish\n• Mixed / sideways / no clear structure → Balanced\n\nAlt override (H1.21): highly correlated alts inherit BTC Weekly Bias. Independent reading только для non-correlated alts.\n\nDetermines trade Direction.",
+        daily_bias: "<strong>Daily Bias — modifier for conviction</strong>\nLookback: <strong>10 daily candles</strong> (~2 weeks).\n\nМетодика:\n• HH + HL за 10 candles → Bullish\n• LH + LL за 10 candles → Bearish\n• Mixed / sideways / no clear structure → Balanced\n\nAlt override (H1.21): highly correlated alts inherit BTC Daily Bias.\n\nIf differs from Weekly → conviction -1 (Weekly still wins direction).",
         liq_draw: "<strong>Target Liq. — direction of target liquidity</strong>\nWhere market is pulled.\n• Above — upside target\n• Below — downside target\n• Both — balance state",
-        draw_level_above: "<strong>Liq. Above — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)",
-        draw_level_below: "<strong>Liq. Below — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)",
-        swept: "<strong>Recently Swept</strong>\nLiquidity taken in last 1-3 candles.\n\n• Same direction as Draw → Post-sweep (-1)\n  (target liquidity already taken — exhaustion warning)\n• Both sides → Transition (NO TRADE)\n• If sweep was long ago — leave empty",
-        extreme: "<strong>Near HTF Extreme</strong>\nВ КАКОЙ HTF reversal-зоне цена СЕЙЧАС.\nНЕ \"ближайший уровень к цене\", а extreme откуда институционалы разворачивают рынок.\n\nПримеры valid extreme:\n• PDH/PDL — при trending day\n• PWH/PWL — при Weekly range boundaries\n• HTF Swing — при deep correction\n• EQH/EQL — contested liquidity zones\n• WO — при weekly rebalance\n\nЕсли цена в midrange (не в HTF extreme) → оставь пустым → blocker блокирует reversal.\n\nRequired for ANY Reversal mode (Neutral regime / Swept / Bias conflict).\n\nEnabled when Mode = Reversal.",
-        barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>2+ of [OB / Wick SNR / Round Number]:</strong> Strong (-2)\n• <strong>OB / Wick SNR / Round Number alone:</strong> Medium (-1)\n• <strong>HTF FVG alone:</strong> Weak (0, usually passes)\n\nHTF FVG не усиливает комбинацию.\nOnly affects Long trades.",
-        barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.",
-        regime: "<strong>Day Regime (MO/WO/DO alignment)</strong>\n• <strong>Trend 3/3:</strong> Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Moderate 2/3:</strong> Normal risk (-1 conviction)\n• <strong>Neutral:</strong> Low risk, Reversal only"
+        draw_level_above: "<strong>Liq. Above — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Above. Одна FVG — одна роль.",
+        draw_level_below: "<strong>Liq. Below — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Below. Одна FVG — одна роль.",
+        swept: "<strong>Recently Swept — HTF liquidity grab</strong>\nLookback: <strong>5-10 trading days</strong>.\n\n<strong>Что засчитывается:</strong>\n• Level type: PDL/PDH/PWL/PWH/PML/PMH/HTF Swing (major, НЕ Session H/L)\n• Sweep depth: <strong>body close beyond level</strong> (не просто wick)\n• Timeframe: Daily candle closed beyond level\n\n<strong>НЕ считается Recently Swept:</strong>\n• Intraday bounces от FVG D / session lows\n• Short wick без body close\n• Minor intraday reactions (→ запиши в Notes если важно)\n\n<strong>Impact:</strong>\n• Same direction as Target Liq. → Post-sweep (-1 conviction, exhaustion warning)\n• Both sides → Transition (NO TRADE blocker)\n• If sweep долго назад (>10 trading days) — leave empty",
+        extreme: "<strong>Near HTF Extreme — reversal-qualifier</strong>\nВ КАКОЙ HTF reversal-зоне цена СЕЙЧАС. НЕ \"ближайший уровень к цене\", а extreme откуда институционалы разворачивают рынок.\nMulti-select. Выбери все применимые (например PWH + PMH если они рядом).\n\n<strong>Major (Weekly+ structural):</strong>\n• HTF Swing — Weekly/Monthly major swing point (не intraday)\n• PMH / PML — previous month high/low\n• PWH / PWL — previous week high/low\n\n<strong>Medium (Daily structural):</strong>\n• PDH / PDL — previous day high/low\n• EQH / EQL — equal highs/lows (contested liquidity)\n• MO — monthly open\n\n<strong>Excluded:</strong> Session H/L, DO, WO, FVG — intraday уровни, не qualify как HTF extreme.\n\nЕсли цена в midrange (не в HTF extreme) → оставь пустым → blocker блокирует Reversal.\n\n<strong>Strength impact (сейчас):</strong> display only. Все tiers одинаково qualify для Reversal. Минорные extreme triggers не добавляются — собираем data для validation перед added conviction cost.\n\nEnabled when Mode = Reversal.",
+        barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>2+ of [OB / Wick SNR / Round Number]:</strong> Strong (-2)\n• <strong>OB / Wick SNR / Round Number alone:</strong> Medium (-1)\n• <strong>HTF FVG alone:</strong> Weak (0, usually passes)\n\nHTF FVG не усиливает комбинацию.\nOnly affects Long trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Above (FVG 50% / FVG edge).\nОдна FVG зона — одна роль: либо target либо barrier, не оба.\nЕсли FVG единственная рядом → выбирай её как target в Liq. (где она сильнее влияет), Barrier оставь пустым.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(14) на 1H</strong>. Barrier слишком далеко от цены не влияет на intraday trade.\nЕсли barrier > 2×ATR 1H — оставь пустым, пометь в Notes: \"barrier skipped — distance\".\n<em>Rule под validation, проверяем на практике. Не уверен — лучше mark чем skip.</em>",
+        barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Below. Одна FVG зона — одна роль.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(14) на 1H</strong>. Если barrier > 2×ATR — skip + Notes pomet.\n<em>Rule под validation, проверяем на практике.</em>",
+        regime: "<strong>Day Regime — position цены относительно MO/WO/DO</strong>\nНЕ momentum, НЕ структура (HH/HL). Чисто position.\n\n• <strong>Trend 3/3 Bull:</strong> price ABOVE all 3 opens → Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Trend 3/3 Bear:</strong> price BELOW all 3 opens → Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Mod 2/3 Bull:</strong> price above 2 of 3 opens → Normal risk (-1 conviction)\n• <strong>Mod 2/3 Bear:</strong> price below 2 of 3 opens → Normal risk (-1 conviction)\n• <strong>Neutral:</strong> mixed / цена лежит на opens → Low risk, Reversal only\n\nEdge case: если цена в пределах small wick (~1%) от open — считать тот open как NEUTRAL (не aligned), склоняться к Mod/Neutral."
       };
       // Unified disable logic for conditional fields
       const mode = computeMode();
@@ -594,9 +868,28 @@ function render() {
           html += `<div style="font-size:10px;margin-top:2px;color:var(--muted)">→ <span style="color:${bColor};font-weight:700">${bl.label}</span> (${bl.trigger})</div>`;
         }
       }
+      // Computed display for HTF Extreme (H1.18) — display only, no conviction impact yet
+      if (f.id === "extreme" && Array.isArray(state[f.id]) && state[f.id].length) {
+        const arr = state[f.id];
+        const strengths = arr.map(t => extremeStrength(t)).filter(Boolean);
+        if (strengths.length) {
+          const best = strengths.includes("Major") ? "Major" : "Medium";
+          const sColor = best === "Major" ? "var(--green)" : "var(--yellow, #ca8a04)";
+          const label = arr.length === 1 ? arr[0] : arr.join(", ");
+          html += `<div style="font-size:10px;margin-top:2px;color:var(--muted)">${label} → <span style="color:${sColor};font-weight:700">${best}</span></div>`;
+        }
+      }
       html += `</div></div>`;
     }
     if (g.key === "htf") html += `</div>`;
+    // H1.19 — Notes + T1/T2 template (inside HTF Context, full width, after all fields, before verdict/status line)
+    if (g.key === "htf") {
+      html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);gap:6px;align-items:flex-start">`;
+      html += `<span class="lbl" style="padding-top:6px">Notes</span>`;
+      html += `<textarea class="mini-input flex" id="notes" placeholder="observations, context..." style="min-height:28px;resize:vertical;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5" oninput="localStorage.setItem('tc_notes',this.value);autoGrowNotes(this)"></textarea>`;
+      html += `<button type="button" onclick="insertT1T2Template()" title="Auto-fills Notes with current Liq./Barrier selection + verdict + T1/T2 template (H1.19)" style="padding:4px 8px;font-size:10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;white-space:nowrap">＋ T1/T2</button>`;
+      html += `</div>`;
+    }
     
     if (g.key === "funding") {
       const fv = computeFunding();
@@ -639,7 +932,7 @@ function render() {
       // Mode
       let localMode = "—"; let lmColor = "var(--muted)";
       if (phase === "Transition⛔") { localMode = "No Trade"; lmColor = "var(--red)"; }
-      else if (state.regime === "Neutral") { localMode = "Reversal"; lmColor = "var(--red)"; }
+      else if (regimeStrength(state.regime) === "Neutral") { localMode = "Reversal"; lmColor = "var(--red)"; }
       else if (state.swept === "Above" || state.swept === "Below") { localMode = "Reversal"; lmColor = "var(--red)"; }
       else if (state.regime) { localMode = "Continuation"; lmColor = "var(--green)"; }
       // Triggers (HTF-local)
@@ -648,7 +941,7 @@ function render() {
       if (state.daily_bias && state.weekly_bias && state.daily_bias !== state.weekly_bias) htfTriggers.push("W≠D");
       const incAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
       const incBelow = state.liq_draw === "Below" || state.liq_draw === "Both";
-      const isTrendDay = state.regime === "Trend 3/3";
+      const isTrendDay = regimeStrength(state.regime) === "Trend 3/3";
       const dlAbove = Array.isArray(state.draw_level_above) ? state.draw_level_above : (state.draw_level_above ? [state.draw_level_above] : []);
       const dlBelow = Array.isArray(state.draw_level_below) ? state.draw_level_below : (state.draw_level_below ? [state.draw_level_below] : []);
       if (!isTrendDay) {
@@ -693,7 +986,7 @@ function render() {
           }
         }
       }
-      if (state.regime === "Mod 2/3") htfTriggers.push("Mod");
+      if (regimeStrength(state.regime) === "Mod 2/3") htfTriggers.push("Mod");
       
       // Count local HTF trigger value
       const htfTrigCount = htfTriggers.reduce((s, t) => s + (t.includes("×2") ? 2 : 1), 0);
@@ -721,8 +1014,19 @@ function render() {
       html += `<span style="font-size:13px;font-weight:700;color:${convColor}">${htfConvLabel} (-${htfTrigCount})</span>`;
       html += `<span style="font-size:11px;color:var(--muted);margin:0 6px">·</span>`;
       html += `<span style="font-size:12px;font-weight:600;color:${phaseColor}">${phase||"—"}</span>`;
+      // Regime direction tag (Trend Bull / Trend Bear / Mod Bull / Mod Bear)
+      const regStrength = regimeStrength(state.regime);
+      const regDir = regimeDirection(state.regime);
+      if (regStrength && regStrength !== "Neutral" && regDir) {
+        const regLabel = (regStrength === "Trend 3/3" ? "Trend" : "Mod") + " " + regDir;
+        const regColor = regDir === "Bull" ? "var(--green)" : "var(--red)";
+        html += `<span style="font-size:11px;color:var(--muted);margin:0 6px">·</span>`;
+        html += `<span style="font-size:12px;font-weight:600;color:${regColor}">${regLabel}</span>`;
+      }
       if (trigLabel) html += `<span style="font-size:10px;color:var(--red);margin-left:4px">${trigLabel}</span>`;
       html += `</div>`;
+      // O7.11 — Verbose HTF verdict (collapsed) — toggle in settings
+      if (isVerboseOn()) html += renderVerboseHTF();
     }
     if (g.key === "market") {
       const ms = computeMarketState();
@@ -806,6 +1110,14 @@ function render() {
     const k = inp.id.replace('inp_','');
     if (localStorage.getItem('tc_'+k)) inp.value = localStorage.getItem('tc_'+k);
   });
+  
+  // H1.19 — restore Notes textarea content + autoGrow after each render (it's now inside HTF section and re-rendered on each state change)
+  const notesEl = document.getElementById("notes");
+  if (notesEl) {
+    const saved = localStorage.getItem("tc_notes");
+    if (saved) notesEl.value = saved;
+    autoGrowNotes(notesEl);
+  }
   
   // verdict
   const vEl = document.getElementById("verdict");
@@ -940,11 +1252,20 @@ function toggleSettings() {
   if (p.style.display === "block") {
     document.getElementById("cfg_worker").value = localStorage.getItem("tc_worker") || "";
     document.getElementById("cfg_token").value = localStorage.getItem("tc_token") || "";
+    // Verbose default ON if never set
+    const vStored = localStorage.getItem("tc_verbose");
+    document.getElementById("cfg_verbose").checked = vStored === null ? true : vStored === "1";
   }
 }
 function saveCfg() {
   localStorage.setItem("tc_worker", document.getElementById("cfg_worker").value);
   localStorage.setItem("tc_token", document.getElementById("cfg_token").value);
+  const v = document.getElementById("cfg_verbose");
+  if (v) localStorage.setItem("tc_verbose", v.checked ? "1" : "0");
+}
+function isVerboseOn() {
+  const v = localStorage.getItem("tc_verbose");
+  return v === null ? true : v === "1";  // default ON
 }
  
 const FIELD_MAP = {
@@ -956,7 +1277,7 @@ const FIELD_MAP = {
   extreme:["",null],
   barrier_above:["",null],
   barrier_below:["",null],
-  regime:["Day Regime",{"Trend 3/3":"Trend 3/3","Mod 2/3":"Moderate 2/3",Neutral:"Neutral"}],
+  regime:["Day Regime",{"Trend 3/3 Bull":"Trend 3/3 Bull","Trend 3/3 Bear":"Trend 3/3 Bear","Mod 2/3 Bull":"Moderate 2/3 Bull","Mod 2/3 Bear":"Moderate 2/3 Bear",Neutral:"Neutral"}],
   disp:["Displacement",{"Pass✅":"Pass","Fail⛔":"Fail"}],
   trigger:["Trigger",{BOS:"BOS","Liq.Sweep":"Liquidity Sweep"}],
   confirm:["Confirmation",{Holds:"Continuation","Retest OK":"Acceptance","Not yet":"None"}],
@@ -1135,8 +1456,7 @@ try {
  
 render();
 renderTopPills();
-// Restore notes & screenshot
-if (localStorage.getItem('tc_notes')) document.getElementById('notes').value = localStorage.getItem('tc_notes');
+// Restore screenshot (notes is restored inside render() since it moved to HTF section)
 if (localStorage.getItem('tc_screenshot')) document.getElementById('screenshot').value = localStorage.getItem('tc_screenshot');
 renderRR();
 </script>

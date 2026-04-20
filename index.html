@@ -506,6 +506,89 @@ function computeMode() {
   return "Continuation";
 }
  
+// H1.14 / H1.20 / H1.12.1 — unified warning pattern detection
+// Inject into verbose block's Warnings section. DOES NOT change Direction/Mode/Conviction output —
+// journal data stays clean, warnings aid discipline only.
+function detectHTFWarnings(S, call, mode) {
+  const warnings = [];
+  
+  // Helper: all items in array are Minor strength (or array empty)
+  const allMinor = (arr) => {
+    if (!Array.isArray(arr) || !arr.length) return true;
+    return arr.every(t => drawLevelStrength(t) === "Minor");
+  };
+  // Helper: barrier absent or only HTF FVG (weak)
+  const barrierWeak = (arr) => {
+    if (!Array.isArray(arr) || !arr.length) return true;
+    return arr.every(t => t === "HTF FVG");
+  };
+  
+  const W = S.weekly_bias;
+  const D = S.daily_bias;
+  const target = S.liq_draw;
+  const swept = S.swept;
+  const regStr = regimeStrength(S.regime);
+  const regDir = regimeDirection(S.regime);
+  const dlAbove = Array.isArray(S.draw_level_above) ? S.draw_level_above : [];
+  const dlBelow = Array.isArray(S.draw_level_below) ? S.draw_level_below : [];
+  const bAbove = Array.isArray(S.barrier_above) ? S.barrier_above : [];
+  const bBelow = Array.isArray(S.barrier_below) ? S.barrier_below : [];
+  
+  // ==== H1.20: Weekly Balanced + Daily directional + Target matches Daily ====
+  // Pattern: Daily should lead when Weekly gives no opinion and all context aligns with Daily
+  if (W === "Balanced" && D && D !== "Balanced") {
+    const dailyDir = D === "Bullish" ? "Above" : "Below";
+    const targetMatch = target === dailyDir || target === "Both";
+    const oppositeClean = D === "Bullish" ? allMinor(dlBelow) : allMinor(dlAbove);
+    const dailyBarrierWeak = D === "Bullish" ? barrierWeak(bAbove) : barrierWeak(bBelow);
+    if (targetMatch && oppositeClean && dailyBarrierWeak) {
+      const dir = D === "Bullish" ? "Long" : "Short";
+      warnings.push({
+        id: "H1.20",
+        title: "Daily-led override candidate",
+        body: `Weekly Balanced + Daily ${D} + Target ${dailyDir} aligned. Opposite side clean, barrier weak. System outputs Both↓ but Daily has clear direction. Consider: ${dir} Continuation.`
+      });
+    }
+  }
+  
+  // ==== H1.14: Weekly directional + Daily opposite + Trend 3/3 matches Daily ====
+  // Pattern: Classical stop-hunt — price runs Daily direction to grab liquidity before reverting to Weekly
+  if (W && W !== "Balanced" && D && D !== "Balanced" && W !== D) {
+    const dailyDir = D === "Bullish" ? "Above" : "Below";
+    const regimeMatchesDaily = regStr === "Trend 3/3" &&
+      ((D === "Bullish" && regDir === "Bull") || (D === "Bearish" && regDir === "Bear"));
+    const targetMatchDaily = target === dailyDir || target === "Both";
+    const weeklySideClean = W === "Bullish" ? allMinor(dlAbove) : allMinor(dlBelow);
+    if (regimeMatchesDaily && targetMatchDaily && weeklySideClean) {
+      const dir = D === "Bullish" ? "Long" : "Short";
+      const wkDir = W === "Bullish" ? "Long" : "Short";
+      warnings.push({
+        id: "H1.14",
+        title: "Stop-hunt pattern candidate",
+        body: `Weekly ${W} but Daily ${D} + Trend 3/3 ${regDir} + Target ${dailyDir}. Price runs Daily direction to grab liquidity before reverting to Weekly. Consider: ${dir} Continuation instead of Weekly-led ${wkDir}.`
+      });
+    }
+  }
+  
+  // ==== H1.12.1: Sweep direction matches Daily Bias (continuation liquidity grab) ====
+  // Pattern: Sweep WITH bias is liquidity grab, not reversal. Skip if Daily=Balanced (per user decision).
+  if ((swept === "Above" || swept === "Below") && D && D !== "Balanced" && mode === "Reversal") {
+    const sweepMatchesBias =
+      (swept === "Above" && D === "Bullish") ||
+      (swept === "Below" && D === "Bearish");
+    if (sweepMatchesBias) {
+      const dir = D === "Bullish" ? "Long" : "Short";
+      warnings.push({
+        id: "H1.12.1",
+        title: "Continuation-sweep candidate",
+        body: `Swept ${swept} matches Daily ${D}. System forces Reversal, but sweep ПО НАПРАВЛЕНИЮ bias = liquidity grab before continuation (not reversal). Consider: ${dir} Continuation after sweep digestion.`
+      });
+    }
+  }
+  
+  return warnings;
+}
+ 
 // O7.11 — Verbose HTF verdict block (collapsed details under status line)
 // Shows every decision input + which triggers cancelled/not-applied + blockers + warnings placeholder
 function renderVerboseHTF() {
@@ -584,8 +667,8 @@ function renderVerboseHTF() {
   const trigCount = triggerLines.filter(t => t.status === "applied").length;
   if (trigCount >= 3) blockers.push("Triggers ≥ 3 (Too Many Risks)");
  
-  // Warnings placeholder (H1.14 / H1.20 / H1.12.1 will inject here)
-  const warnings = [];
+  // Warnings — detected patterns (H1.14 / H1.20 / H1.12.1)
+  const warnings = detectHTFWarnings(S, call, mode);
  
   // Conviction summary
   const convLabel = trigCount <= 1 ? "High" : trigCount === 2 ? "Standard" : "Low";
@@ -689,12 +772,14 @@ function renderVerboseHTF() {
   out += `<div style="margin-bottom:6px"><b>Warnings:</b> `;
   if (warnings.length) {
     out += `<span style="color:var(--yellow, #ca8a04)">${warnings.length}</span></div>`;
-    out += `<div style="padding-left:12px;color:var(--yellow, #ca8a04);margin-bottom:4px">`;
-    for (const w of warnings) out += `⚠ ${w}<br>`;
-    out += `</div>`;
+    for (const w of warnings) {
+      out += `<div style="padding-left:12px;margin-bottom:6px">`;
+      out += `<div style="color:var(--yellow, #ca8a04);font-weight:700">⚠ ${w.title} <span style="color:var(--muted);font-weight:400;font-size:10px">(${w.id})</span></div>`;
+      out += `<div style="padding-left:16px;color:var(--muted);font-size:10px;line-height:1.5;margin-top:2px">${w.body}</div>`;
+      out += `</div>`;
+    }
   } else {
     out += `<span style="color:var(--muted)">none</span></div>`;
-    out += `<div style="padding-left:12px;color:var(--muted);font-size:10px;margin-bottom:4px;font-style:italic">H1.14 / H1.20 / H1.12.1 detection will inject here</div>`;
   }
  
   // Status dot explain
@@ -710,7 +795,7 @@ function autoGrowNotes(el) {
   el.style.height = Math.min(el.scrollHeight, 300) + "px";
 }
  
-// H1.19 — T1/T2 template: auto-fill Notes with current Liq./Barrier selection + verdict + blank template
+// H1.19 — TP1/TP2 template: auto-fill Notes with current Liq./Barrier selection + verdict + blank template
 function insertT1T2Template() {
   const notesEl = document.getElementById("notes");
   if (!notesEl) return;
@@ -742,8 +827,8 @@ function insertT1T2Template() {
   if (convLabel && convLabel !== "—") verdictParts.push(convLabel);
   if (risk) verdictParts.push(risk + " risk");
   if (verdictParts.length) lines.push("System: " + verdictParts.join(" · "));
-  // Template block (user fills in)
-  const templateBlock = "―\nT1: \nT2: \nBarrier position: \nMy decision: \nDeviation: ";
+  // Template block (user fills in, inline hints explain each field)
+  const templateBlock = "―\nTP1: \nTP2: \nBarrier position: (before TP1 / between TP1-TP2 / after TP2 / none)\nMy decision: (TP1 only / TP1+TP2 / skipped / other)\nDeviation: (fill if action ≠ system — explain why)";
   const newBlock = lines.join("\n") + "\n" + templateBlock;
   // Append mode: if notes already has content, separate with newlines
   const existing = notesEl.value.trim();
@@ -882,12 +967,12 @@ function render() {
       html += `</div></div>`;
     }
     if (g.key === "htf") html += `</div>`;
-    // H1.19 — Notes + T1/T2 template (inside HTF Context, full width, after all fields, before verdict/status line)
+    // H1.19 — Notes + TP1/TP2 template (inside HTF Context, full width, after all fields, before verdict/status line)
     if (g.key === "htf") {
       html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);gap:6px;align-items:flex-start">`;
       html += `<span class="lbl" style="padding-top:6px">Notes</span>`;
       html += `<textarea class="mini-input flex" id="notes" placeholder="observations, context..." style="min-height:28px;resize:vertical;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5" oninput="localStorage.setItem('tc_notes',this.value);autoGrowNotes(this)"></textarea>`;
-      html += `<button type="button" onclick="insertT1T2Template()" title="Auto-fills Notes with current Liq./Barrier selection + verdict + T1/T2 template (H1.19)" style="padding:4px 8px;font-size:10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;white-space:nowrap">＋ T1/T2</button>`;
+      html += `<button type="button" onclick="insertT1T2Template()" title="Auto-fills Notes with current Liq./Barrier selection + verdict + TP1/TP2 template (H1.19)" style="padding:4px 8px;font-size:10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;white-space:nowrap">＋ TP1/TP2</button>`;
       html += `</div>`;
     }
     
@@ -1024,6 +1109,11 @@ function render() {
         html += `<span style="font-size:12px;font-weight:600;color:${regColor}">${regLabel}</span>`;
       }
       if (trigLabel) html += `<span style="font-size:10px;color:var(--red);margin-left:4px">${trigLabel}</span>`;
+      // H1.14/H1.20/H1.12.1 — warnings count badge on status line (yellow, hint to expand verbose)
+      const statusWarnings = detectHTFWarnings(state, call, localMode);
+      if (statusWarnings.length) {
+        html += `<span style="font-size:11px;color:var(--yellow, #ca8a04);font-weight:600;margin-left:6px" title="${statusWarnings.map(w=>w.title+' ('+w.id+')').join(' · ')}">⚠ ${statusWarnings.length}</span>`;
+      }
       html += `</div>`;
       // O7.11 — Verbose HTF verdict (collapsed) — toggle in settings
       if (isVerboseOn()) html += renderVerboseHTF();

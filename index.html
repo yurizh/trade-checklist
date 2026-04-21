@@ -589,6 +589,106 @@ function detectHTFWarnings(S, call, mode) {
   return warnings;
 }
  
+// Inline compact status summary — placed in section header.
+// Same verdict data as the old banner status line, just compact sizing for inline use.
+function buildHTFStatusInline() {
+  const call = computeTradeCall();
+  const callColor = call === "Long" ? "var(--green)" : call === "Short" ? "var(--red)" : "var(--muted)";
+  const phase = computeLiquidityPhase();
+  const phaseColor = phase === "Accumulation" ? "var(--green)" : phase === "Post-sweep↓" ? "var(--yellow, #ca8a04)" : phase === "Transition⛔" ? "var(--red)" : "var(--muted)";
+  let localMode = "—"; let lmColor = "var(--muted)";
+  if (phase === "Transition⛔") { localMode = "No Trade"; lmColor = "var(--red)"; }
+  else if (regimeStrength(state.regime) === "Neutral") { localMode = "Reversal"; lmColor = "var(--red)"; }
+  else if (state.swept === "Above" || state.swept === "Below") { localMode = "Reversal"; lmColor = "var(--red)"; }
+  else if (state.regime) { localMode = "Continuation"; lmColor = "var(--green)"; }
+  // Triggers
+  const htfTriggers = [];
+  if (state.weekly_bias === "Balanced") htfTriggers.push("W.Bal");
+  if (state.daily_bias && state.weekly_bias && state.daily_bias !== state.weekly_bias) htfTriggers.push("W≠D");
+  const incAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
+  const incBelow = state.liq_draw === "Below" || state.liq_draw === "Both";
+  const isTrendDay = regimeStrength(state.regime) === "Trend 3/3";
+  const dlAbove = Array.isArray(state.draw_level_above) ? state.draw_level_above : (state.draw_level_above ? [state.draw_level_above] : []);
+  const dlBelow = Array.isArray(state.draw_level_below) ? state.draw_level_below : (state.draw_level_below ? [state.draw_level_below] : []);
+  if (!isTrendDay) {
+    if (call === "Long" && incAbove && dlAbove.some(t => drawLevelStrength(t) === "Minor")) htfTriggers.push("Minor↑");
+    else if (call === "Short" && incBelow && dlBelow.some(t => drawLevelStrength(t) === "Minor")) htfTriggers.push("Minor↓");
+    else if (call === "Both↓") {
+      const hasAboveMinor = incAbove && dlAbove.some(t => drawLevelStrength(t) === "Minor");
+      const hasBelowMinor = incBelow && dlBelow.some(t => drawLevelStrength(t) === "Minor");
+      if (hasAboveMinor && hasBelowMinor) htfTriggers.push("Minor↕");
+      else if (hasAboveMinor) htfTriggers.push("Minor↑");
+      else if (hasBelowMinor) htfTriggers.push("Minor↓");
+    }
+  }
+  if (phase === "Post-sweep↓") htfTriggers.push("Post-sweep");
+  if (call === "Long") {
+    const s = barrierStrength(state.barrier_above);
+    if (s === 2) htfTriggers.push("Barr↑×2");
+    else if (s === 1) htfTriggers.push("Barr↑");
+  } else if (call === "Short") {
+    const s = barrierStrength(state.barrier_below);
+    if (s === 2) htfTriggers.push("Barr↓×2");
+    else if (s === 1) htfTriggers.push("Barr↓");
+  } else if (call === "Both↓") {
+    if (state.liq_draw === "Above") {
+      const s = barrierStrength(state.barrier_above);
+      if (s === 2) htfTriggers.push("Barr↑×2");
+      else if (s === 1) htfTriggers.push("Barr↑");
+    } else if (state.liq_draw === "Below") {
+      const s = barrierStrength(state.barrier_below);
+      if (s === 2) htfTriggers.push("Barr↓×2");
+      else if (s === 1) htfTriggers.push("Barr↓");
+    } else if (state.liq_draw === "Both") {
+      const bAbove = barrierStrength(state.barrier_above);
+      const bBelow = barrierStrength(state.barrier_below);
+      if (bAbove >= bBelow && bAbove > 0) {
+        if (bAbove === 2) htfTriggers.push("Barr↑×2");
+        else htfTriggers.push("Barr↑");
+      } else if (bBelow > 0) {
+        if (bBelow === 2) htfTriggers.push("Barr↓×2");
+        else htfTriggers.push("Barr↓");
+      }
+    }
+  }
+  if (regimeStrength(state.regime) === "Mod 2/3") htfTriggers.push("Mod");
+  const htfTrigCount = htfTriggers.reduce((s, t) => s + (t.includes("×2") ? 2 : 1), 0);
+  const htfConvLabel = htfTrigCount <= 1 ? "High" : htfTrigCount === 2 ? "Standard" : "Low";
+  let dotColor = "var(--muted)";
+  if (phase === "Transition⛔") dotColor = "var(--red)";
+  else if (htfConvLabel === "High") dotColor = "var(--green)";
+  else if (htfConvLabel === "Standard") dotColor = "var(--yellow, #ca8a04)";
+  else dotColor = "var(--red)";
+  const convColor = htfConvLabel === "High" ? "var(--green)" : htfConvLabel === "Standard" ? "var(--yellow, #ca8a04)" : "var(--red)";
+  const trigLabel = htfTriggers.length ? "↓" + htfTriggers.join(",") : "";
+  // Build compact inline HTML — letter-spacing:normal overrides group-title 0.06em.
+  let s = '';
+  s += `<span style="display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px;letter-spacing:normal;font-weight:400;margin-left:6px">`;
+  s += `<span style="font-size:13px;color:${dotColor};line-height:1">●</span>`;
+  s += `<span style="font-size:11px;font-weight:700;color:${callColor}">${call||"—"}</span>`;
+  s += `<span style="font-size:10px;color:var(--muted)">·</span>`;
+  s += `<span style="font-size:11px;font-weight:700;color:${lmColor}">${localMode}</span>`;
+  s += `<span style="font-size:10px;color:var(--muted)">·</span>`;
+  s += `<span style="font-size:11px;font-weight:700;color:${convColor}">${htfConvLabel} (-${htfTrigCount})</span>`;
+  s += `<span style="font-size:10px;color:var(--muted)">·</span>`;
+  s += `<span style="font-size:11px;font-weight:600;color:${phaseColor}">${phase||"—"}</span>`;
+  const regStrength = regimeStrength(state.regime);
+  const regDir = regimeDirection(state.regime);
+  if (regStrength && regStrength !== "Neutral" && regDir) {
+    const regLabel = (regStrength === "Trend 3/3" ? "Trend" : "Mod") + " " + regDir;
+    const regColor = regDir === "Bull" ? "var(--green)" : "var(--red)";
+    s += `<span style="font-size:10px;color:var(--muted)">·</span>`;
+    s += `<span style="font-size:11px;font-weight:600;color:${regColor}">${regLabel}</span>`;
+  }
+  if (trigLabel) s += `<span style="font-size:10px;color:var(--red);margin-left:2px">${trigLabel}</span>`;
+  const statusWarnings = detectHTFWarnings(state, call, localMode);
+  if (statusWarnings.length) {
+    s += `<span style="font-size:10px;color:var(--yellow, #ca8a04);font-weight:600;margin-left:2px" title="${statusWarnings.map(w=>w.title+' ('+w.id+')').join(' · ')}">⚠${statusWarnings.length}</span>`;
+  }
+  s += `</span>`;
+  return s;
+}
+ 
 // O7.11 — Verbose HTF verdict block (collapsed details under status line)
 // Shows every decision input + which triggers cancelled/not-applied + blockers + warnings placeholder
 function renderVerboseHTF() {
@@ -697,6 +797,10 @@ function renderVerboseHTF() {
   out += `<details style="font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6">`;
   out += `<summary style="cursor:pointer;color:var(--muted);font-size:11px;padding:2px 0;user-select:none">▼ Details</summary>`;
   out += `<div style="padding:8px 6px 4px 6px;background:var(--bg-alt,rgba(0,0,0,0.02));border-radius:4px;margin-top:4px">`;
+  // 2-column grid: Col1 = Direction, Mode, Phase, Extreme · Col2 = Conviction, Blockers, Warnings
+  out += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">`;
+  // ===== COLUMN 1 =====
+  out += `<div>`;
  
   // Direction
   out += `<div style="margin-bottom:6px"><b>Direction:</b> ${call||"—"}</div>`;
@@ -734,14 +838,6 @@ function renderVerboseHTF() {
   else out += `<span style="color:var(--green)">✓</span> Not recently swept`;
   out += `</div>`;
  
-  // Conviction
-  out += `<div style="margin-bottom:6px"><b>Conviction:</b> ${convLabel} (${trigCount} trigger${trigCount===1?"":"s"})</div>`;
-  out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px">`;
-  for (const t of triggerLines) {
-    out += `<span style="color:${color(t.status)};display:inline-block;min-width:22px;text-align:center">${icon(t.status)}</span> <b>${t.label}</b> <span style="color:var(--muted);margin-left:6px">${t.note}</span><br>`;
-  }
-  out += `</div>`;
- 
   // Extreme
   out += `<div style="margin-bottom:6px"><b>Extreme:</b> `;
   if (mode === "Reversal") {
@@ -757,8 +853,20 @@ function renderVerboseHTF() {
   }
   out += `</div>`;
  
+  out += `</div>`;
+  // ===== COLUMN 2 =====
+  out += `<div>`;
+ 
+  // Conviction
+  out += `<div style="margin-bottom:6px"><b>Conviction:</b> ${convLabel} (${trigCount} trigger${trigCount===1?"":"s"})</div>`;
+  out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px">`;
+  for (const t of triggerLines) {
+    out += `<span style="color:${color(t.status)};display:inline-block;min-width:22px;text-align:center">${icon(t.status)}</span> <b>${t.label}</b> <span style="color:var(--muted);margin-left:6px">${t.note}</span><br>`;
+  }
+  out += `</div>`;
+ 
   // Blockers
-  out += `<div style="margin-top:10px;margin-bottom:6px"><b>Blockers:</b> `;
+  out += `<div style="margin-bottom:6px"><b>Blockers:</b> `;
   if (blockers.length) {
     out += `<span style="color:var(--red)">${blockers.length}</span></div>`;
     out += `<div style="padding-left:12px;color:var(--red);margin-bottom:8px">`;
@@ -782,7 +890,11 @@ function renderVerboseHTF() {
     out += `<span style="color:var(--muted)">none</span></div>`;
   }
  
-  // Status dot explain
+  out += `</div>`;
+  // ===== END GRID =====
+  out += `</div>`;
+ 
+  // Status dot — full width below grid
   out += `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--border);color:var(--muted)"><b>Status dot:</b> ${dotExplain}</div>`;
  
   out += `</div></details></div>`;
@@ -814,20 +926,8 @@ function insertT1T2Template() {
   // Extreme — if selected
   const ext = Array.isArray(S.extreme) ? S.extreme : (S.extreme ? [S.extreme] : []);
   if (ext.length) lines.push("Extreme: " + ext.join(", "));
-  // Current verdict snapshot
-  const call = computeTradeCall();
-  const mode = computeMode();
-  const risk = computeRisk();
-  // Quick conviction label from main pipeline
-  const conv = computeConviction();
-  const convLabel = conv && conv.label ? conv.label : (conv && conv.triggers !== undefined ? (conv.triggers <= 1 ? "High" : conv.triggers === 2 ? "Standard" : "Low") : "—");
-  const verdictParts = [];
-  if (call) verdictParts.push(call);
-  if (mode) verdictParts.push(mode);
-  if (convLabel && convLabel !== "—") verdictParts.push(convLabel);
-  if (risk) verdictParts.push(risk + " risk");
-  if (verdictParts.length) lines.push("System: " + verdictParts.join(" · "));
-  // Template block (user fills in, inline hints explain each field)
+  // Template block (user fills in, inline hints explain each field).
+  // Note: no "System:" line here — status line above already shows Direction · Mode · Conviction · Phase · Regime.
   const templateBlock = "―\nTP1: \nTP2: \nBarrier position: (before TP1 / between TP1-TP2 / after TP2 / none)\nMy decision: (TP1 only / TP1+TP2 / skipped / other)\nDeviation: (fill if action ≠ system — explain why)";
   const newBlock = lines.join("\n") + "\n" + templateBlock;
   // Append mode: if notes already has content, separate with newlines
@@ -868,10 +968,111 @@ function render() {
     
     html += `<div class="group" style="border-left:3px solid ${g.color}">`;
     html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}`;
+    if (g.key === "htf") html += buildHTFStatusInline();
     html += `<button class="rules-btn" onclick="toggleRules('${g.key}')">${rulesOpen[g.key] ? '▼rules' : '▶rules'}</button></div>`;
     if (rulesOpen[g.key]) html += `<div class="rules-text">${g.rules}</div>`;
     
-    if (g.key === "htf") html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;grid-auto-flow:row dense">`;
+    if (g.key === "htf") {
+      // ===== Compact HTF Context layout (April 21, 2026) =====
+      // Row A: Weekly + Daily · Row B: Regime · Row C: Target Liq. + Rec. Swept
+      // Row D: Extreme (full width) · Row E: Liq Above/Below (3-col grids)
+      // Row F: Barrier Above/Below (2-col grids)
+      // Computed displays shown inline next to field label.
+      const tooltips = {
+        weekly_bias: "<strong>Weekly Bias — primary structural direction</strong>\nLookback: <strong>8-12 weekly candles</strong> (~2-3 months).\n\nМетодика:\n• HH + HL → Bullish\n• LH + LL → Bearish\n• Mixed / sideways / no clear structure → Balanced\n\nAlt override (H1.21): highly correlated alts inherit BTC Weekly Bias. Independent reading только для non-correlated alts.\n\nDetermines trade Direction.",
+        daily_bias: "<strong>Daily Bias — modifier for conviction</strong>\nLookback: <strong>10 daily candles</strong> (~2 weeks).\n\nМетодика:\n• HH + HL за 10 candles → Bullish\n• LH + LL за 10 candles → Bearish\n• Mixed / sideways / no clear structure → Balanced\n\nAlt override (H1.21): highly correlated alts inherit BTC Daily Bias.\n\nIf differs from Weekly → conviction -1 (Weekly still wins direction).",
+        liq_draw: "<strong>Target Liq. — direction of target liquidity</strong>\nWhere market is pulled.\n• Above — upside target\n• Below — downside target\n• Both — balance state",
+        draw_level_above: "<strong>Liq. Above — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Above. Одна FVG — одна роль.",
+        draw_level_below: "<strong>Liq. Below — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Below. Одна FVG — одна роль.",
+        swept: "<strong>Recently Swept — HTF liquidity grab</strong>\nLookback: <strong>5-10 trading days</strong>.\n\n<strong>Что засчитывается:</strong>\n• Level type: PDL/PDH/PWL/PWH/PML/PMH/HTF Swing (major, НЕ Session H/L)\n• Sweep depth: <strong>body close beyond level</strong> (не просто wick)\n• Timeframe: Daily candle closed beyond level\n\n<strong>НЕ считается Recently Swept:</strong>\n• Intraday bounces от FVG D / session lows\n• Short wick без body close\n• Minor intraday reactions (→ запиши в Notes если важно)\n\n<strong>Impact:</strong>\n• Same direction as Target Liq. → Post-sweep (-1 conviction, exhaustion warning)\n• Both sides → Transition (NO TRADE blocker)\n• If sweep долго назад (>10 trading days) — leave empty",
+        extreme: "<strong>Near HTF Extreme — reversal-qualifier</strong>\nВ КАКОЙ HTF reversal-зоне цена СЕЙЧАС. НЕ \"ближайший уровень к цене\", а extreme откуда институционалы разворачивают рынок.\nMulti-select. Выбери все применимые (например PWH + PMH если они рядом).\n\n<strong>Major (Weekly+ structural):</strong>\n• HTF Swing — Weekly/Monthly major swing point (не intraday)\n• PMH / PML — previous month high/low\n• PWH / PWL — previous week high/low\n\n<strong>Medium (Daily structural):</strong>\n• PDH / PDL — previous day high/low\n• EQH / EQL — equal highs/lows (contested liquidity)\n• MO — monthly open\n\n<strong>Excluded:</strong> Session H/L, DO, WO, FVG — intraday уровни, не qualify как HTF extreme.\n\nЕсли цена в midrange (не в HTF extreme) → оставь пустым → blocker блокирует Reversal.\n\n<strong>Strength impact (сейчас):</strong> display only. Все tiers одинаково qualify для Reversal. Минорные extreme triggers не добавляются — собираем data для validation перед added conviction cost.\n\nEnabled when Mode = Reversal.",
+        barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>2+ of [OB / Wick SNR / Round Number]:</strong> Strong (-2)\n• <strong>OB / Wick SNR / Round Number alone:</strong> Medium (-1)\n• <strong>HTF FVG alone:</strong> Weak (0, usually passes)\n\nHTF FVG не усиливает комбинацию.\nOnly affects Long trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Above (FVG 50% / FVG edge).\nОдна FVG зона — одна роль: либо target либо barrier, не оба.\nЕсли FVG единственная рядом → выбирай её как target в Liq. (где она сильнее влияет), Barrier оставь пустым.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(14) на 1H</strong>. Barrier слишком далеко от цены не влияет на intraday trade.\nЕсли barrier > 2×ATR 1H — оставь пустым, пометь в Notes: \"barrier skipped — distance\".\n<em>Rule под validation, проверяем на практике. Не уверен — лучше mark чем skip.</em>",
+        barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Below. Одна FVG зона — одна роль.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(14) на 1H</strong>. Если barrier > 2×ATR — skip + Notes pomet.\n<em>Rule под validation, проверяем на практике.</em>",
+        regime: "<strong>Day Regime — position цены относительно MO/WO/DO</strong>\nНЕ momentum, НЕ структура (HH/HL). Чисто position.\n\n• <strong>Trend 3/3 Bull:</strong> price ABOVE all 3 opens → Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Trend 3/3 Bear:</strong> price BELOW all 3 opens → Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Mod 2/3 Bull:</strong> price above 2 of 3 opens → Normal risk (-1 conviction)\n• <strong>Mod 2/3 Bear:</strong> price below 2 of 3 opens → Normal risk (-1 conviction)\n• <strong>Neutral:</strong> mixed / цена лежит на opens → Low risk, Reversal only\n\nEdge case: если цена в пределах small wick (~1%) от open — считать тот open как NEUTRAL (не aligned), склоняться к Mod/Neutral."
+      };
+      const mode = computeMode();
+      const isFieldDisabled = (fid) => {
+        if (fid === "extreme") return (mode !== "Reversal");
+        if (fid === "draw_level_above") return (state.liq_draw !== "Above" && state.liq_draw !== "Both");
+        if (fid === "draw_level_below") return (state.liq_draw !== "Below" && state.liq_draw !== "Both");
+        if (fid === "barrier_above") return (state.liq_draw === "Below");
+        if (fid === "barrier_below") return (state.liq_draw === "Above");
+        return false;
+      };
+      const computedInline = (fid) => {
+        if (fid === "draw_level_above" || fid === "draw_level_below") {
+          const arr = Array.isArray(state[fid]) ? state[fid] : (state[fid] ? [state[fid]] : []);
+          if (!arr.length) return '';
+          const strengths = arr.map(t => drawLevelStrength(t)).filter(Boolean);
+          const best = strengths.includes("Major") ? "Major" : strengths.includes("Medium") ? "Medium" : "Minor";
+          const sColor = best === "Major" ? "var(--green)" : best === "Medium" ? "var(--yellow, #ca8a04)" : "var(--red)";
+          return ` <span style="font-size:10px;color:var(--muted);margin-left:8px;font-weight:400">${arr.join(", ")} → <span style="color:${sColor};font-weight:700">${best}</span></span>`;
+        }
+        if (fid === "barrier_above" || fid === "barrier_below") {
+          const arr = Array.isArray(state[fid]) ? state[fid] : [];
+          if (!arr.length) return '';
+          const bl = barrierStrengthLabel(arr);
+          if (!bl) return '';
+          const bColor = bl.trigger === 0 ? "var(--muted)" : bl.trigger === -1 ? "var(--yellow, #ca8a04)" : "var(--red)";
+          return ` <span style="font-size:10px;color:var(--muted);margin-left:8px;font-weight:400">${arr.join(", ")} → <span style="color:${bColor};font-weight:700">${bl.label}</span> (${bl.trigger})</span>`;
+        }
+        if (fid === "extreme") {
+          const arr = Array.isArray(state[fid]) ? state[fid] : [];
+          if (!arr.length) return '';
+          const strengths = arr.map(t => extremeStrength(t)).filter(Boolean);
+          if (!strengths.length) return '';
+          const best = strengths.includes("Major") ? "Major" : "Medium";
+          const sColor = best === "Major" ? "var(--green)" : "var(--yellow, #ca8a04)";
+          return ` <span style="font-size:10px;color:var(--muted);margin-left:8px;font-weight:400">${arr.join(", ")} → <span style="color:${sColor};font-weight:700">${best}</span></span>`;
+        }
+        return '';
+      };
+      const renderField = (f, gridCols) => {
+        const disabled = isFieldDisabled(f.id);
+        const disabledCls = disabled ? " field-disabled" : "";
+        const tipHtml = tooltips[f.id] ? `<span class="tip">${f.label} ⓘ<span class="tip-box">${tooltips[f.id]}</span></span>` : f.label;
+        const computed = computedInline(f.id);
+        let out = `<div class="${disabledCls}"><div class="row" style="margin-bottom:2px"><span class="lbl">${tipHtml}${computed}</span></div>`;
+        const pillsStyle = gridCols > 0 ? ` style="display:grid;grid-template-columns:repeat(${gridCols},1fr);gap:4px"` : '';
+        out += `<div class="pills"${pillsStyle}>`;
+        for (const o of f.opts) {
+          const sel = f.multi ? (Array.isArray(state[f.id]) && state[f.id].includes(o)) : state[f.id] === o;
+          const isStop = STOP.has(o);
+          const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
+          const disabledAttr = disabled ? " disabled" : "";
+          const clickFn = f.multi ? "pickMulti" : "pick";
+          out += `<button class="${cls}"${disabledAttr} onclick="${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')">${o}</button>`;
+        }
+        out += `</div></div>`;
+        return out;
+      };
+      const fmap = {};
+      for (const f of g.fields) fmap[f.id] = f;
+      // Row A: Bias (Weekly + Daily)
+      html += `<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:6px">`;
+      html += renderField(fmap.weekly_bias, 0);
+      html += renderField(fmap.daily_bias, 0);
+      html += `</div>`;
+      // Row B: Regime
+      html += `<div style="margin-bottom:6px">` + renderField(fmap.regime, 0) + `</div>`;
+      // Row C: Target Liq. + Recently Swept
+      html += `<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:6px">`;
+      html += renderField(fmap.liq_draw, 0);
+      html += renderField(fmap.swept, 0);
+      html += `</div>`;
+      // Row D: Near HTF Extreme (full width, under phase cluster)
+      html += `<div style="margin-bottom:6px">` + renderField(fmap.extreme, 0) + `</div>`;
+      // Row E: Liq Above / Liq Below — 3-col pill grids side-by-side
+      html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:6px">`;
+      html += renderField(fmap.draw_level_above, 3);
+      html += renderField(fmap.draw_level_below, 3);
+      html += `</div>`;
+      // Row F: Barrier Above / Below — 2-col pill grids side-by-side
+      html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:6px">`;
+      html += renderField(fmap.barrier_above, 2);
+      html += renderField(fmap.barrier_below, 2);
+      html += `</div>`;
+    } else {
     for (const f of g.fields) {
       if (f.id === "disp") {
         html += `<div class="row"><span class="lbl">${f.label}</span><div class="disp-row">`;
@@ -966,7 +1167,7 @@ function render() {
       }
       html += `</div></div>`;
     }
-    if (g.key === "htf") html += `</div>`;
+    }
     // H1.19 — Notes + TP1/TP2 template (inside HTF Context, full width, after all fields, before verdict/status line)
     if (g.key === "htf") {
       html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);gap:6px;align-items:flex-start">`;
@@ -1010,112 +1211,8 @@ function render() {
       html += `</div>`;
     }
     if (g.key === "htf") {
-      const call = computeTradeCall();
-      const callColor = call === "Long" ? "var(--green)" : call === "Short" ? "var(--red)" : "var(--muted)";
-      const phase = computeLiquidityPhase();
-      const phaseColor = phase === "Accumulation" ? "var(--green)" : phase === "Post-sweep↓" ? "var(--yellow, #ca8a04)" : phase === "Transition⛔" ? "var(--red)" : "var(--muted)";
-      // Mode
-      let localMode = "—"; let lmColor = "var(--muted)";
-      if (phase === "Transition⛔") { localMode = "No Trade"; lmColor = "var(--red)"; }
-      else if (regimeStrength(state.regime) === "Neutral") { localMode = "Reversal"; lmColor = "var(--red)"; }
-      else if (state.swept === "Above" || state.swept === "Below") { localMode = "Reversal"; lmColor = "var(--red)"; }
-      else if (state.regime) { localMode = "Continuation"; lmColor = "var(--green)"; }
-      // Triggers (HTF-local)
-      const htfTriggers = [];
-      if (state.weekly_bias === "Balanced") htfTriggers.push("W.Bal");
-      if (state.daily_bias && state.weekly_bias && state.daily_bias !== state.weekly_bias) htfTriggers.push("W≠D");
-      const incAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
-      const incBelow = state.liq_draw === "Below" || state.liq_draw === "Both";
-      const isTrendDay = regimeStrength(state.regime) === "Trend 3/3";
-      const dlAbove = Array.isArray(state.draw_level_above) ? state.draw_level_above : (state.draw_level_above ? [state.draw_level_above] : []);
-      const dlBelow = Array.isArray(state.draw_level_below) ? state.draw_level_below : (state.draw_level_below ? [state.draw_level_below] : []);
-      if (!isTrendDay) {
-        if (call === "Long" && incAbove && dlAbove.some(t => drawLevelStrength(t) === "Minor")) htfTriggers.push("Minor↑");
-        else if (call === "Short" && incBelow && dlBelow.some(t => drawLevelStrength(t) === "Minor")) htfTriggers.push("Minor↓");
-        else if (call === "Both↓") {
-          const hasAboveMinor = incAbove && dlAbove.some(t => drawLevelStrength(t) === "Minor");
-          const hasBelowMinor = incBelow && dlBelow.some(t => drawLevelStrength(t) === "Minor");
-          if (hasAboveMinor && hasBelowMinor) htfTriggers.push("Minor↕");
-          else if (hasAboveMinor) htfTriggers.push("Minor↑");
-          else if (hasBelowMinor) htfTriggers.push("Minor↓");
-        }
-      }
-      if (phase === "Post-sweep↓") htfTriggers.push("Post-sweep");
-      if (call === "Long") {
-        const s = barrierStrength(state.barrier_above);
-        if (s === 2) htfTriggers.push("Barr↑×2");
-        else if (s === 1) htfTriggers.push("Barr↑");
-      } else if (call === "Short") {
-        const s = barrierStrength(state.barrier_below);
-        if (s === 2) htfTriggers.push("Barr↓×2");
-        else if (s === 1) htfTriggers.push("Barr↓");
-      } else if (call === "Both↓") {
-        // Balanced bias: barrier from Draw direction
-        if (state.liq_draw === "Above") {
-          const s = barrierStrength(state.barrier_above);
-          if (s === 2) htfTriggers.push("Barr↑×2");
-          else if (s === 1) htfTriggers.push("Barr↑");
-        } else if (state.liq_draw === "Below") {
-          const s = barrierStrength(state.barrier_below);
-          if (s === 2) htfTriggers.push("Barr↓×2");
-          else if (s === 1) htfTriggers.push("Barr↓");
-        } else if (state.liq_draw === "Both") {
-          const bAbove = barrierStrength(state.barrier_above);
-          const bBelow = barrierStrength(state.barrier_below);
-          if (bAbove >= bBelow && bAbove > 0) {
-            if (bAbove === 2) htfTriggers.push("Barr↑×2");
-            else htfTriggers.push("Barr↑");
-          } else if (bBelow > 0) {
-            if (bBelow === 2) htfTriggers.push("Barr↓×2");
-            else htfTriggers.push("Barr↓");
-          }
-        }
-      }
-      if (regimeStrength(state.regime) === "Mod 2/3") htfTriggers.push("Mod");
-      
-      // Count local HTF trigger value
-      const htfTrigCount = htfTriggers.reduce((s, t) => s + (t.includes("×2") ? 2 : 1), 0);
-      // HTF local conviction: 0-1=High, 2=Standard, 3+=Low (matches main conviction)
-      const htfConvLabel = htfTrigCount <= 1 ? "High" : htfTrigCount === 2 ? "Standard" : "Low";
-      const htfConvLevel = 3 - htfTrigCount;  // kept for dot color logic below
-      
-      // Status dot color — based on HTF conviction label (aligned with fixed thresholds)
-      let dotColor = "var(--muted)";
-      let dotChar = "●";
-      if (phase === "Transition⛔") { dotColor = "var(--red)"; }
-      else if (htfConvLabel === "High") dotColor = "var(--green)";
-      else if (htfConvLabel === "Standard") dotColor = "var(--yellow, #ca8a04)";
-      else dotColor = "var(--red)";
-      
-      const convColor = htfConvLabel === "High" ? "var(--green)" : htfConvLabel === "Standard" ? "var(--yellow, #ca8a04)" : "var(--red)";
-      const trigLabel = htfTriggers.length ? " · ↓" + htfTriggers.join(", ") : "";
-      
-      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border);flex-wrap:wrap;gap:0;align-items:center">`;
-      html += `<span style="font-size:16px;color:${dotColor};margin-right:6px;line-height:1">${dotChar}</span>`;
-      html += `<span style="font-size:13px;font-weight:700;color:${callColor}">${call||"—"}</span>`;
-      html += `<span style="font-size:11px;color:var(--muted);margin:0 6px">·</span>`;
-      html += `<span style="font-size:13px;font-weight:700;color:${lmColor}">${localMode}</span>`;
-      html += `<span style="font-size:11px;color:var(--muted);margin:0 6px">·</span>`;
-      html += `<span style="font-size:13px;font-weight:700;color:${convColor}">${htfConvLabel} (-${htfTrigCount})</span>`;
-      html += `<span style="font-size:11px;color:var(--muted);margin:0 6px">·</span>`;
-      html += `<span style="font-size:12px;font-weight:600;color:${phaseColor}">${phase||"—"}</span>`;
-      // Regime direction tag (Trend Bull / Trend Bear / Mod Bull / Mod Bear)
-      const regStrength = regimeStrength(state.regime);
-      const regDir = regimeDirection(state.regime);
-      if (regStrength && regStrength !== "Neutral" && regDir) {
-        const regLabel = (regStrength === "Trend 3/3" ? "Trend" : "Mod") + " " + regDir;
-        const regColor = regDir === "Bull" ? "var(--green)" : "var(--red)";
-        html += `<span style="font-size:11px;color:var(--muted);margin:0 6px">·</span>`;
-        html += `<span style="font-size:12px;font-weight:600;color:${regColor}">${regLabel}</span>`;
-      }
-      if (trigLabel) html += `<span style="font-size:10px;color:var(--red);margin-left:4px">${trigLabel}</span>`;
-      // H1.14/H1.20/H1.12.1 — warnings count badge on status line (yellow, hint to expand verbose)
-      const statusWarnings = detectHTFWarnings(state, call, localMode);
-      if (statusWarnings.length) {
-        html += `<span style="font-size:11px;color:var(--yellow, #ca8a04);font-weight:600;margin-left:6px" title="${statusWarnings.map(w=>w.title+' ('+w.id+')').join(' · ')}">⚠ ${statusWarnings.length}</span>`;
-      }
-      html += `</div>`;
-      // O7.11 — Verbose HTF verdict (collapsed) — toggle in settings
+      // Status summary moved to section header via buildHTFStatusInline().
+      // O7.11 — Verbose HTF verdict (collapsed) — toggle in settings.
       if (isVerboseOn()) html += renderVerboseHTF();
     }
     if (g.key === "market") {
@@ -1543,6 +1640,14 @@ try {
   const d = localStorage.getItem('tc_disp');
   if (d) dispState = JSON.parse(d);
 } catch(e) {}
+ 
+// H1.19 — Clear persisted Notes on new tab/window session (per-setup intent).
+// sessionStorage persists across F5 refresh but not across tab close → Notes stays empty
+// when you open a fresh tab, but survives accidental page reload mid-setup.
+if (!sessionStorage.getItem('tc_session_active')) {
+  localStorage.removeItem('tc_notes');
+  sessionStorage.setItem('tc_session_active', '1');
+}
  
 render();
 renderTopPills();

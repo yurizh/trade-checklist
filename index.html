@@ -154,8 +154,8 @@ const GROUPS = [
       {id:"regime",label:"Regime",opts:["Trend 3/3 Bull","Trend 3/3 Bear","Mod 2/3 Bull","Mod 2/3 Bear","Neutral"]},
       {id:"liq_draw",label:"Target Liq.",opts:["Above","Below","Both"]},
       {id:"swept",label:"Recently Swept",opts:["Above","Below","Both"],optional:true},
-      {id:"barrier_above",label:"Barrier Above",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
-      {id:"barrier_below",label:"Barrier Below",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
+      {id:"barrier_above",label:"Barrier Above (≤ 2×ATR 1H)",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
+      {id:"barrier_below",label:"Barrier Below (≤ 2×ATR 1H)",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
       {id:"extreme",label:"Near HTF Extreme",opts:["HTF Swing","PMH","PML","PWH","PWL","PDH","PDL","EQH","EQL","MO"],optional:true,multi:true},
       {id:"draw_level_above",label:"Liq. Above",opts:["HTF Swing H","PMH","PWH","MO","PDH","WO","EQH","FVG 50%","Round Number","Session H","DO","FVG edge"],optional:true,multi:true},
       {id:"draw_level_below",label:"Liq. Below",opts:["HTF Swing L","PML","PWL","MO","PDL","WO","EQL","FVG 50%","Round Number","Session L","DO","FVG edge"],optional:true,multi:true}
@@ -334,6 +334,45 @@ function computeRisk() {
   if (s === "Mod 2/3") return "Normal";
   if (s === "Neutral") return "Low";
   return null;
+}
+ 
+// Shared blocker logic — used by both buildHTFStatusInline (header) and renderVerboseHTF (Details).
+// Single source of truth. Returns array of blocker strings (empty = no blockers).
+// Note: Triggers ≥ 3 blocker is added separately in renderVerboseHTF since it depends on trigger count.
+function computeBlockers() {
+  const S = state;
+  const call = computeTradeCall();
+  const phase = computeLiquidityPhase();
+  const mode = computeMode();
+  const blockers = [];
+  
+  // Existing: Phase = Transition (both sides swept)
+  if (phase === "Transition⛔") blockers.push("Phase = Transition (both sides swept)");
+  
+  // Existing: Reversal mode without Extreme selected
+  if (mode === "Reversal" && (!Array.isArray(S.extreme) || !S.extreme.length)) {
+    blockers.push("Reversal mode without Extreme selected");
+  }
+  
+  // B2 fix: Direction–Target consistency
+  // Rule 1: Direction must match Target Liq side
+  if (call === "Long" && S.liq_draw === "Below") {
+    blockers.push("Long direction requires Above or Both target");
+  }
+  if (call === "Short" && S.liq_draw === "Above") {
+    blockers.push("Short direction requires Below or Both target");
+  }
+  // Rule 2: Direction-side levels must be filled
+  const dlAboveArr = Array.isArray(S.draw_level_above) ? S.draw_level_above : (S.draw_level_above ? [S.draw_level_above] : []);
+  const dlBelowArr = Array.isArray(S.draw_level_below) ? S.draw_level_below : (S.draw_level_below ? [S.draw_level_below] : []);
+  if (call === "Long" && S.liq_draw && (S.liq_draw === "Above" || S.liq_draw === "Both") && dlAboveArr.length === 0) {
+    blockers.push("Long direction requires Liq. Above levels selected");
+  }
+  if (call === "Short" && S.liq_draw && (S.liq_draw === "Below" || S.liq_draw === "Both") && dlBelowArr.length === 0) {
+    blockers.push("Short direction requires Liq. Below levels selected");
+  }
+  
+  return blockers;
 }
  
 function computeConviction() {
@@ -655,8 +694,12 @@ function buildHTFStatusInline() {
   if (regimeStrength(state.regime) === "Mod 2/3") htfTriggers.push("Mod");
   const htfTrigCount = htfTriggers.reduce((s, t) => s + (t.includes("×2") ? 2 : 1), 0);
   const htfConvLabel = htfTrigCount <= 1 ? "High" : htfTrigCount === 2 ? "Standard" : "Low";
+  // Blocker check (B2 fix): if any structural blocker fires, override dot to red regardless of conviction
+  const headerBlockers = computeBlockers();
+  // Note: Triggers ≥ 3 is also a blocker but already reflected in conviction label "Low"
+  const hasStructuralBlocker = headerBlockers.length > 0;
   let dotColor = "var(--muted)";
-  if (phase === "Transition⛔") dotColor = "var(--red)";
+  if (phase === "Transition⛔" || hasStructuralBlocker) dotColor = "var(--red)";
   else if (htfConvLabel === "High") dotColor = "var(--green)";
   else if (htfConvLabel === "Standard") dotColor = "var(--yellow, #ca8a04)";
   else dotColor = "var(--red)";
@@ -682,6 +725,11 @@ function buildHTFStatusInline() {
     s += `<span style="font-size:11px;font-weight:600;color:${regColor}">${regLabel}</span>`;
   }
   if (trigLabel) s += `<span style="font-size:10px;color:var(--red);margin-left:2px">${trigLabel}</span>`;
+  // B2 fix: visible blocker indicator in header
+  if (hasStructuralBlocker) {
+    const blockerTitle = headerBlockers.join(' · ');
+    s += `<span style="font-size:10px;color:var(--red);font-weight:700;margin-left:2px" title="${blockerTitle}">⛔${headerBlockers.length}</span>`;
+  }
   const statusWarnings = detectHTFWarnings(state, call, localMode);
   if (statusWarnings.length) {
     s += `<span style="font-size:10px;color:var(--yellow, #ca8a04);font-weight:600;margin-left:2px" title="${statusWarnings.map(w=>w.title+' ('+w.id+')').join(' · ')}">⚠${statusWarnings.length}</span>`;
@@ -740,6 +788,13 @@ function renderVerboseHTF() {
   else if (call === "Both↓") {
     if (S.liq_draw === "Above") { barrSide = "↑"; barrArr = S.barrier_above; }
     else if (S.liq_draw === "Below") { barrSide = "↓"; barrArr = S.barrier_below; }
+    else if (S.liq_draw === "Both") {
+      // B1 fix: when liq_draw=Both, choose stronger barrier side (matches computeConviction logic)
+      const bAbove = barrierStrength(S.barrier_above);
+      const bBelow = barrierStrength(S.barrier_below);
+      if (bAbove >= bBelow && bAbove > 0) { barrSide = "↑"; barrArr = S.barrier_above; }
+      else if (bBelow > 0) { barrSide = "↓"; barrArr = S.barrier_below; }
+    }
   }
   if (barrSide && Array.isArray(barrArr) && barrArr.length) {
     const bs = barrierStrength(barrArr);
@@ -761,10 +816,8 @@ function renderVerboseHTF() {
   if (oi15 && oi15.includes("⛔")) triggerLines.push({status:"applied", label:"OI "+oi15, note:"OI stop"});
   else if (oi15 && oi15.includes("↓")) triggerLines.push({status:"applied", label:"OI "+oi15, note:"OI reduces"});
  
-  // Blockers
-  const blockers = [];
-  if (phase === "Transition⛔") blockers.push("Phase = Transition (both sides swept)");
-  if (mode === "Reversal" && (!Array.isArray(S.extreme) || !S.extreme.length)) blockers.push("Reversal mode without Extreme selected");
+  // Blockers — using shared computeBlockers() for foundational checks, plus Triggers count blocker
+  const blockers = computeBlockers();
   const trigCount = triggerLines.filter(t => t.status === "applied").length;
   if (trigCount >= 3) blockers.push("Triggers ≥ 3 (Too Many Risks)");
  
@@ -773,9 +826,6 @@ function renderVerboseHTF() {
  
   // Conviction summary
   const convLabel = trigCount <= 1 ? "High" : trigCount === 2 ? "Standard" : "Low";
-  const dotExplain = phase === "Transition⛔" ? "red (Transition blocker)" :
-    convLabel === "High" ? "green (High conviction)" :
-    convLabel === "Standard" ? "yellow (Standard conviction)" : "red (Low conviction)";
  
   // Build HTML
   const color = (status) => {
@@ -894,9 +944,6 @@ function renderVerboseHTF() {
   out += `</div>`;
   // ===== END GRID =====
   out += `</div>`;
- 
-  // Status dot — full width below grid
-  out += `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--border);color:var(--muted)"><b>Status dot:</b> ${dotExplain}</div>`;
  
   out += `</div></details></div>`;
   return out;

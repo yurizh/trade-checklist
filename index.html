@@ -961,10 +961,13 @@ function renderVerboseHTF() {
     out += `<span style="color:var(--yellow, #ca8a04)">⚠</span> Manual Wait override (sub-type: ${S.wait_sub_type})<br>`;
     out += `<span style="color:var(--muted)">  ·</span> Resolution: ${waitResolution(S.wait_sub_type)}<br>`;
     if (state.atr_1h && state.atr_1h > 0) {
-      out += `<span style="color:var(--muted)">  ·</span> ATR(1H) = ${state.atr_1h} (use for distance check)`;
+      out += `<span style="color:var(--muted)">  ·</span> ATR(1H) = ${state.atr_1h} (use for distance check)<br>`;
     } else {
-      out += `<span style="color:var(--muted)">  ·</span> ATR(1H) not provided — distance check manual`;
+      out += `<span style="color:var(--muted)">  ·</span> ATR(1H) not provided — distance check manual<br>`;
     }
+    // O7.14 (2026-04-27): HTF↔LTF bridge — explicit hand-off to Entry Trigger section
+    // Wait Mode на HTF level — это filter "don't enter yet". Operational confirmation lives в Section 5.
+    out += `<span style="color:var(--yellow, #ca8a04)">💡</span> <span style="color:var(--muted)">Next step: wait for <b>Section 5 (Entry Trigger)</b> — don't enter без LTF confirmation (BOS / Displacement / Sweep + retest)</span>`;
   } else if (mode === "No Trade") {
     out += `<span style="color:var(--red)">⛔</span> No Trade — see Blockers`;
   }

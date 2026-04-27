@@ -213,6 +213,33 @@ let dispState = {d_body:false, d_wick:false, d_range:false, d_vol:false};
 let rulesOpen = {};
 let postOpen = false;
  
+// ATR(1H) persistence + distance helpers (H1.22, H1.25, O7.2 — added 2026-04-27)
+// Per-asset persistence: localStorage['tc_atr_1h_BTC'], 'tc_atr_1h_ETH', etc.
+// On asset switch — auto-fill state.atr_1h from saved value for that asset.
+function loadATRForAsset(asset) {
+  if (!asset) return;
+  const saved = localStorage.getItem('tc_atr_1h_' + asset);
+  if (saved !== null && saved !== "") {
+    state.atr_1h = parseFloat(saved);
+    if (isNaN(state.atr_1h)) state.atr_1h = undefined;
+  }
+}
+function saveATRForAsset(asset, value) {
+  if (!asset) return;
+  if (value === undefined || value === null || value === "") {
+    localStorage.removeItem('tc_atr_1h_' + asset);
+  } else {
+    localStorage.setItem('tc_atr_1h_' + asset, String(value));
+  }
+}
+// distanceInAtr — null if ATR missing/invalid, else distance ratio
+function distanceInAtr(price1, price2) {
+  const atr = state.atr_1h;
+  if (!atr || atr <= 0) return null;
+  if (price1 === undefined || price2 === undefined || isNaN(price1) || isNaN(price2)) return null;
+  return Math.abs(price1 - price2) / atr;
+}
+ 
 function computeTradeCall() {
   const bias = state.weekly_bias;
   if (!bias) return null;
@@ -383,7 +410,14 @@ function computeConviction() {
   
   // HTF triggers (new structure)
   if (state.weekly_bias === "Balanced") triggers++;
-  if (state.daily_bias && state.weekly_bias && state.daily_bias !== state.weekly_bias) triggers++;
+  // H1.27 (2026-04-27): W≠D fires only on genuine bias conflict (Bullish vs Bearish).
+  // Balanced is "absence of bias", not "competing bias" — skip W≠D when either side Balanced.
+  // Otherwise W.Bal + W≠D double-count from same root cause (asymmetric Bias pair).
+  if (state.daily_bias && state.weekly_bias &&
+      state.daily_bias !== state.weekly_bias &&
+      state.weekly_bias !== "Balanced" && state.daily_bias !== "Balanced") {
+    triggers++;
+  }
   // Liq. trigger — check level in trade direction AND if Target Liq. includes that side
   // Cancelled by Regime = Trend 3/3 (strong MO/WO/DO alignment compensates for weak target)
   const dirForDraw = computeTradeCall();
@@ -524,8 +558,15 @@ function computeMode() {
   
   if (!regime) return null;
   
-  // Liquidity Phase = Transition → No Trade
+  // Liquidity Phase = Transition → No Trade (highest priority — structural blocker)
   if (phase === "Transition⛔") return "No Trade";
+  
+  // H1.25 / H1.24 (2026-04-27): Wait Mode override (manual flag).
+  // When trader sets state.wait_sub_type — Mode becomes "Wait".
+  // Sub-type tracked для journal/analysis.
+  // Position: AFTER Transition blocker (No Trade wins), BEFORE other Mode logic
+  // (Wait represents trader's manual decision that auto Mode не отражает реальность).
+  if (state.wait_sub_type) return "Wait";
   
   // Squeeze with resolution overrides
   if ((mktState === "L.Squeeze⛔" || mktState === "S.Squeeze⛔") && sqzResol) {
@@ -586,7 +627,8 @@ function detectHTFWarnings(S, call, mode) {
       warnings.push({
         id: "H1.20",
         title: "Daily-led override candidate",
-        body: `Weekly Balanced + Daily ${D} + Target ${dailyDir} aligned. Opposite side clean, barrier weak. System outputs Both↓ but Daily has clear direction. Consider: ${dir} Continuation.`
+        // H1.28 (2026-04-27): generic warning text — no Continuation/Reversal modifier
+        body: `Weekly Balanced + Daily ${D} + Target ${dailyDir} aligned. Opposite side clean, barrier weak. System outputs Both↓ but Daily has clear direction. Consider: Daily-led ${dir} direction.`
       });
     }
   }
@@ -605,7 +647,8 @@ function detectHTFWarnings(S, call, mode) {
       warnings.push({
         id: "H1.14",
         title: "Stop-hunt pattern candidate",
-        body: `Weekly ${W} but Daily ${D} + Trend 3/3 ${regDir} + Target ${dailyDir}. Price runs Daily direction to grab liquidity before reverting to Weekly. Consider: ${dir} Continuation instead of Weekly-led ${wkDir}.`
+        // H1.28 (2026-04-27): generic warning text — no Continuation/Reversal modifier
+        body: `Weekly ${W} but Daily ${D} + Trend 3/3 ${regDir} + Target ${dailyDir}. Price runs Daily direction to grab liquidity before reverting to Weekly. Consider: Daily-led ${dir} direction instead of Weekly-led ${wkDir}.`
       });
     }
   }
@@ -621,7 +664,8 @@ function detectHTFWarnings(S, call, mode) {
       warnings.push({
         id: "H1.12.1",
         title: "Continuation-sweep candidate",
-        body: `Swept ${swept} matches Daily ${D}. System forces Reversal, but sweep ПО НАПРАВЛЕНИЮ bias = liquidity grab before continuation (not reversal). Consider: ${dir} Continuation after sweep digestion.`
+        // H1.28 (2026-04-27): generic warning text — no Continuation/Reversal modifier
+        body: `Swept ${swept} matches Daily ${D}. System forces Reversal, but sweep ПО НАПРАВЛЕНИЮ bias = liquidity grab before continuation (not reversal). Consider: ${dir} bias-aligned, sweep already taken.`
       });
     }
   }
@@ -637,14 +681,26 @@ function buildHTFStatusInline() {
   const phase = computeLiquidityPhase();
   const phaseColor = phase === "Accumulation" ? "var(--green)" : phase === "Post-sweep↓" ? "var(--yellow, #ca8a04)" : phase === "Transition⛔" ? "var(--red)" : "var(--muted)";
   let localMode = "—"; let lmColor = "var(--muted)";
+  // H1.25 / H1.24 (2026-04-27): Wait mode override sub-type label mapping
+  const waitLabel = (sub) => {
+    if (sub === "post_sweep_digestion") return "Wait (post-sweep digestion)";
+    if (sub === "target_premature") return "Wait (target premature)";
+    return "Wait";
+  };
   if (phase === "Transition⛔") { localMode = "No Trade"; lmColor = "var(--red)"; }
+  else if (state.wait_sub_type) { localMode = waitLabel(state.wait_sub_type); lmColor = "var(--yellow, #ca8a04)"; }
   else if (regimeStrength(state.regime) === "Neutral") { localMode = "Reversal"; lmColor = "var(--red)"; }
   else if (state.swept === "Above" || state.swept === "Below") { localMode = "Reversal"; lmColor = "var(--red)"; }
   else if (state.regime) { localMode = "Continuation"; lmColor = "var(--green)"; }
   // Triggers
   const htfTriggers = [];
   if (state.weekly_bias === "Balanced") htfTriggers.push("W.Bal");
-  if (state.daily_bias && state.weekly_bias && state.daily_bias !== state.weekly_bias) htfTriggers.push("W≠D");
+  // H1.27 (2026-04-27): W≠D fires only on genuine bias conflict (both directional, opposite).
+  if (state.daily_bias && state.weekly_bias &&
+      state.daily_bias !== state.weekly_bias &&
+      state.weekly_bias !== "Balanced" && state.daily_bias !== "Balanced") {
+    htfTriggers.push("W≠D");
+  }
   const incAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
   const incBelow = state.liq_draw === "Below" || state.liq_draw === "Both";
   const isTrendDay = regimeStrength(state.regime) === "Trend 3/3";
@@ -755,10 +811,18 @@ function renderVerboseHTF() {
   // W.Bal
   if (S.weekly_bias === "Balanced") triggerLines.push({status:"applied", label:"W.Bal", note:"Weekly Bias = Balanced"});
   else if (S.weekly_bias) triggerLines.push({status:"pass", label:"W = "+S.weekly_bias, note:"no W.Bal trigger"});
-  // W≠D
+  // W≠D — H1.27 (2026-04-27): fires only on genuine bias conflict (both directional, opposite).
+  // Skip if either Weekly or Daily is Balanced (double-count avoidance).
   if (S.weekly_bias && S.daily_bias) {
-    if (S.daily_bias !== S.weekly_bias) triggerLines.push({status:"applied", label:"W≠D", note:S.weekly_bias+" / "+S.daily_bias});
-    else triggerLines.push({status:"pass", label:"D = W", note:"no W≠D trigger"});
+    const eitherBalanced = S.weekly_bias === "Balanced" || S.daily_bias === "Balanced";
+    if (S.daily_bias !== S.weekly_bias && !eitherBalanced) {
+      triggerLines.push({status:"applied", label:"W≠D", note:S.weekly_bias+" / "+S.daily_bias});
+    } else if (S.daily_bias === S.weekly_bias) {
+      triggerLines.push({status:"pass", label:"D = W", note:"no W≠D trigger"});
+    } else {
+      // One side Balanced — H1.27 skips W≠D
+      triggerLines.push({status:"pass", label:"W≠D", note:"skipped (H1.27 — Balanced ≠ conflict)"});
+    }
   }
   // Phase Post-sweep
   if (phase === "Post-sweep↓") triggerLines.push({status:"applied", label:"Post-sweep", note:"Target side was swept"});
@@ -858,13 +922,32 @@ function renderVerboseHTF() {
   out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px">`;
   if (S.weekly_bias && S.daily_bias) {
     const aligned = S.weekly_bias === S.daily_bias;
-    out += `<span style="color:${aligned?'var(--green)':'var(--red)'}">${aligned?'✓':'−1'}</span> Weekly ${S.weekly_bias} · Daily ${S.daily_bias} · ${aligned?'aligned':'conflict'}<br>`;
+    const eitherBalanced = S.weekly_bias === "Balanced" || S.daily_bias === "Balanced";
+    // H1.27 (2026-04-27): "conflict" label only on genuine bias conflict (both directional, opposite).
+    // When either Balanced — label as "mixed" (no penalty applied).
+    let label, color, icon;
+    if (aligned) { label = "aligned"; color = "var(--green)"; icon = "✓"; }
+    else if (eitherBalanced) { label = "mixed (no penalty)"; color = "var(--muted)"; icon = "·"; }
+    else { label = "conflict"; color = "var(--red)"; icon = "−1"; }
+    out += `<span style="color:${color}">${icon}</span> Weekly ${S.weekly_bias} · Daily ${S.daily_bias} · ${label}<br>`;
   }
   if (risk) out += `<span style="color:var(--muted)">risk:</span> ${risk} (Regime = ${regStr||"—"})`;
   out += `</div>`;
  
   // Mode
-  out += `<div style="margin-bottom:6px"><b>Mode:</b> ${mode||"—"}</div>`;
+  // H1.25 / H1.24 (2026-04-27): Wait mode display with sub-type
+  const waitDisplay = (sub) => {
+    if (sub === "post_sweep_digestion") return "Wait — post-sweep digestion";
+    if (sub === "target_premature") return "Wait — target premature";
+    return "Wait";
+  };
+  const waitResolution = (sub) => {
+    if (sub === "post_sweep_digestion") return "watch for retest of swept extreme или decisive directional close";
+    if (sub === "target_premature") return "watch for entry zone closer (target should be ≤ 4× ATR(1H) from current price)";
+    return "watch for resolution";
+  };
+  const modeDisplay = mode === "Wait" ? waitDisplay(S.wait_sub_type) : (mode || "—");
+  out += `<div style="margin-bottom:6px"><b>Mode:</b> ${modeDisplay}</div>`;
   out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px">`;
   if (mode === "Continuation") {
     out += `<span style="color:var(--green)">✓</span> Regime = ${S.regime||"—"} (supports continuation)<br>`;
@@ -874,6 +957,14 @@ function renderVerboseHTF() {
     if (regStr === "Neutral") out += `<span style="color:var(--red)">−1</span> Regime = Neutral → forces Reversal<br>`;
     if (swept === "Above" || swept === "Below") out += `<span style="color:var(--red)">−1</span> Recently Swept = ${swept}<br>`;
     if (S.session === "Sweep") out += `<span style="color:var(--red)">−1</span> Session = Sweep<br>`;
+  } else if (mode === "Wait") {
+    out += `<span style="color:var(--yellow, #ca8a04)">⚠</span> Manual Wait override (sub-type: ${S.wait_sub_type})<br>`;
+    out += `<span style="color:var(--muted)">  ·</span> Resolution: ${waitResolution(S.wait_sub_type)}<br>`;
+    if (state.atr_1h && state.atr_1h > 0) {
+      out += `<span style="color:var(--muted)">  ·</span> ATR(1H) = ${state.atr_1h} (use for distance check)`;
+    } else {
+      out += `<span style="color:var(--muted)">  ·</span> ATR(1H) not provided — distance check manual`;
+    }
   } else if (mode === "No Trade") {
     out += `<span style="color:var(--red)">⛔</span> No Trade — see Blockers`;
   }
@@ -1030,12 +1121,12 @@ function render() {
         weekly_bias: "<strong>Weekly Bias — primary structural direction</strong>\nLookback: <strong>8-12 weekly candles</strong> (~2-3 months).\n\nМетодика:\n• HH + HL → Bullish\n• LH + LL → Bearish\n• Mixed / sideways / no clear structure → Balanced\n\nAlt override (H1.21): highly correlated alts inherit BTC Weekly Bias. Independent reading только для non-correlated alts.\n\nDetermines trade Direction.",
         daily_bias: "<strong>Daily Bias — modifier for conviction</strong>\nLookback: <strong>10 daily candles</strong> (~2 weeks).\n\nМетодика:\n• HH + HL за 10 candles → Bullish\n• LH + LL за 10 candles → Bearish\n• Mixed / sideways / no clear structure → Balanced\n\nAlt override (H1.21): highly correlated alts inherit BTC Daily Bias.\n\nIf differs from Weekly → conviction -1 (Weekly still wins direction).",
         liq_draw: "<strong>Target Liq. — direction of target liquidity</strong>\nWhere market is pulled.\n• Above — upside target\n• Below — downside target\n• Both — balance state",
-        draw_level_above: "<strong>Liq. Above — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PMH, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Above. Одна FVG — одна роль.",
-        draw_level_below: "<strong>Liq. Below — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PML, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Below. Одна FVG — одна роль.",
+        draw_level_above: "<strong>Liq. Above — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PMH, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)\n\n<strong>HTF Swing H = ATH (H1.29):</strong>\nИспользуй HTF Swing H для ATH (all-time high) тоже. Mark в Notes: \"ATH\" if relevant.\n\n<strong>Target distance check (H1.22, manual):</strong>\nЕсли target > 4× ATR(1H) от current price → setup is \"premature timing\". Используй ATR(1H) field вверху для расчёта.\nЕсли premature — flag через Wait Mode → target premature.\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Above. Одна FVG — одна роль.",
+        draw_level_below: "<strong>Liq. Below — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PML, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)\n\n<strong>HTF Swing L = ATL (H1.29):</strong>\nИспользуй HTF Swing L для ATL (all-time low) тоже. Mark в Notes: \"ATL\" if relevant.\n\n<strong>Target distance check (H1.22, manual):</strong>\nЕсли target > 4× ATR(1H) от current price → setup is \"premature timing\". Используй ATR(1H) field вверху для расчёта.\nЕсли premature — flag через Wait Mode → target premature.\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Below. Одна FVG — одна роль.",
         swept: "<strong>Recently Swept — HTF liquidity grab</strong>\nLookback: <strong>5-10 trading days</strong>.\n\n<strong>Что засчитывается:</strong>\n• Level type: PDL/PDH/PWL/PWH/PML/PMH/HTF Swing (major, НЕ Session H/L)\n• Sweep depth: <strong>body close beyond level</strong> (не просто wick)\n• Timeframe: Daily candle closed beyond level\n\n<strong>НЕ считается Recently Swept:</strong>\n• Intraday bounces от FVG D / session lows\n• Short wick без body close\n• Minor intraday reactions (→ запиши в Notes если важно)\n\n<strong>Impact:</strong>\n• Same direction as Target Liq. → Post-sweep (-1 conviction, exhaustion warning)\n• Both sides → Transition (NO TRADE blocker)\n• If sweep долго назад (>10 trading days) — leave empty",
         extreme: "<strong>Near HTF Extreme — reversal-qualifier</strong>\nВ КАКОЙ HTF reversal-зоне цена СЕЙЧАС. НЕ \"ближайший уровень к цене\", а extreme откуда институционалы разворачивают рынок.\nMulti-select. Выбери все применимые (например PWH + PMH если они рядом).\n\n<strong>Major (Weekly+ structural):</strong>\n• HTF Swing — Weekly/Monthly major swing point (не intraday)\n• PMH / PML — previous month high/low\n• PWH / PWL — previous week high/low\n\n<strong>Medium (Daily structural):</strong>\n• PDH / PDL — previous day high/low\n• EQH / EQL — equal highs/lows (contested liquidity)\n• MO — monthly open\n\n<strong>Excluded:</strong> Session H/L, DO, WO, FVG — intraday уровни, не qualify как HTF extreme.\n\nЕсли цена в midrange (не в HTF extreme) → оставь пустым → blocker блокирует Reversal.\n\n<strong>Strength impact (сейчас):</strong> display only. Все tiers одинаково qualify для Reversal. Минорные extreme triggers не добавляются — собираем data для validation перед added conviction cost.\n\nEnabled when Mode = Reversal.",
-        barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>2+ of [OB / Wick SNR / Round Number]:</strong> Strong (-2)\n• <strong>OB / Wick SNR / Round Number alone:</strong> Medium (-1)\n• <strong>HTF FVG alone:</strong> Weak (0, usually passes)\n\nHTF FVG не усиливает комбинацию.\nOnly affects Long trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Above (FVG 50% / FVG edge).\nОдна FVG зона — одна роль: либо target либо barrier, не оба.\nЕсли FVG единственная рядом → выбирай её как target в Liq. (где она сильнее влияет), Barrier оставь пустым.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(14) на 1H</strong>. Barrier слишком далеко от цены не влияет на intraday trade.\nЕсли barrier > 2×ATR 1H — оставь пустым, пометь в Notes: \"barrier skipped — distance\".\n<em>Rule под validation, проверяем на практике. Не уверен — лучше mark чем skip.</em>",
-        barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Below. Одна FVG зона — одна роль.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(14) на 1H</strong>. Если barrier > 2×ATR — skip + Notes pomet.\n<em>Rule под validation, проверяем на практике.</em>",
+        barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>2+ of [OB / Wick SNR / Round Number]:</strong> Strong (-2)\n• <strong>OB / Wick SNR / Round Number alone:</strong> Medium (-1)\n• <strong>HTF FVG alone:</strong> Weak (0, usually passes)\n\nHTF FVG не усиливает комбинацию.\nOnly affects Long trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Above (FVG 50% / FVG edge).\nОдна FVG зона — одна роль: либо target либо barrier, не оба.\nЕсли FVG единственная рядом → выбирай её как target в Liq. (где она сильнее влияет), Barrier оставь пустым.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(1H)</strong>. Barrier слишком далеко от цены не влияет на intraday trade.\nИспользуй ATR(1H) field вверху для расчёта: distance(price, barrier) / ATR(1H).\nЕсли barrier > 2× ATR(1H) — оставь пустым, пометь в Notes: \"barrier skipped — distance > 2× ATR(1H)\".\n<em>Rule под validation, проверяем на практике. Не уверен — лучше mark чем skip.</em>",
+        barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Below. Одна FVG зона — одна роль.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(1H)</strong>. Используй ATR(1H) field вверху для расчёта.\nЕсли barrier > 2× ATR(1H) — skip + Notes pomet \"barrier skipped — distance > 2× ATR(1H)\".\n<em>Rule под validation, проверяем на практике.</em>",
         regime: "<strong>Day Regime — position цены относительно MO/WO/DO</strong>\nНЕ momentum, НЕ структура (HH/HL). Чисто position.\n\n• <strong>Trend 3/3 Bull:</strong> price ABOVE all 3 opens → Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Trend 3/3 Bear:</strong> price BELOW all 3 opens → Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Mod 2/3 Bull:</strong> price above 2 of 3 opens → Normal risk (-1 conviction)\n• <strong>Mod 2/3 Bear:</strong> price below 2 of 3 opens → Normal risk (-1 conviction)\n• <strong>Neutral:</strong> mixed / цена лежит на opens → Low risk, Reversal only\n\nEdge case: если цена в пределах small wick (~1%) от open — считать тот open как NEUTRAL (не aligned), склоняться к Mod/Neutral."
       };
       const mode = computeMode();
@@ -1107,6 +1198,35 @@ function render() {
       html += renderField(fmap.regime, 0);
       html += renderField(fmap.swept, 0);
       html += `</div>`;
+      // Row 2.5: ATR(1H) + Wait Mode Override — discipline tools (powers H1.22, H1.25, O7.2)
+      const atrTooltip = "<strong>ATR(1H) — 1-hour ATR(14) value</strong>\nCurrent value of ATR(14) on 1H chart. Get from TradingView: add ATR indicator (length 14) на 1H chart, прочитай current value.\n\n<strong>Используется для (manual checks):</strong>\n• <strong>O7.2:</strong> Barrier active if distance ≤ 2× ATR(1H) — manually verify, mark в Notes if barrier > 2×ATR\n• <strong>H1.22:</strong> Target premature if distance > 4× ATR(1H) — manually flag через Wait Mode → target premature\n• <strong>H1.25:</strong> Post-sweep digestion if distance from swept extreme > 2× ATR(1H) — flag через Wait Mode → post-sweep digestion\n\n<strong>Опционально</strong> — поле служит anchor для discipline. Сохраняется per-asset (BTC/ETH/SOL/PEPE) — при смене asset автоматически загружается последнее значение.";
+      const waitTooltip = "<strong>Wait Mode override (H1.25 / H1.24)</strong>\nManual flag: setup структурно valid но resolution pending. Используй когда auto Mode не отражает реальность.\n\n<strong>Sub-types:</strong>\n• <strong>post-sweep digestion (H1.25 state 2):</strong> sweep happened, цена сделала significant retreat (> 2× ATR(1H) от swept extreme), waiting for re-test или decisive close\n• <strong>target premature (H1.22):</strong> structurally valid setup но target слишком далеко (> 4× ATR(1H)), watch for entry zone closer\n\n<strong>Effect:</strong> Mode = Wait, conviction рассчитывается normally, journal records sub-type для analysis. Не блокирует setup — это discipline marker.\n\n<strong>(auto)</strong> = no override, system computes Mode normally.";
+      const atrCurrent = (state.atr_1h !== undefined && state.atr_1h !== null) ? state.atr_1h : "";
+      const atrCurrentAsset = state.asset || "";
+      const waitCurrent = state.wait_sub_type || "";
+      html += `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:6px">`;
+      // ATR(1H) input
+      html += `<div style="display:flex;align-items:center;gap:8px">`;
+      html += `<span class="lbl"><span class="tip">ATR(1H) ⓘ<span class="tip-box">${atrTooltip}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
+      html += `<input type="number" step="any" id="inp_atr_1h" class="mini-input" style="width:100px" placeholder="e.g. 0.5" value="${atrCurrent}" oninput="setATR1H(this.value)">`;
+      const atrSet = state.atr_1h && state.atr_1h > 0;
+      html += `<span style="font-size:10px;color:${atrSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">`;
+      html += atrSet ? `✓ active` : `· empty`;
+      html += `</span>`;
+      html += `</div>`;
+      // Wait Mode override dropdown
+      html += `<div style="display:flex;align-items:center;gap:8px">`;
+      html += `<span class="lbl"><span class="tip">Wait Mode ⓘ<span class="tip-box">${waitTooltip}</span></span></span>`;
+      html += `<select id="sel_wait_sub_type" onchange="setWaitSubType(this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--border,#ddd);border-radius:4px;background:var(--bg,#fff);font-family:'JetBrains Mono',monospace">`;
+      html += `<option value="" ${waitCurrent===""?"selected":""}>(auto)</option>`;
+      html += `<option value="post_sweep_digestion" ${waitCurrent==="post_sweep_digestion"?"selected":""}>post-sweep digestion</option>`;
+      html += `<option value="target_premature" ${waitCurrent==="target_premature"?"selected":""}>target premature</option>`;
+      html += `</select>`;
+      if (waitCurrent) {
+        html += `<span style="font-size:10px;color:var(--yellow,#ca8a04);font-weight:600">⚠ Wait</span>`;
+      }
+      html += `</div>`;
+      html += `</div>`;
       // Row 3: Near HTF Extreme (full width, under phase cluster)
       html += `<div style="margin-bottom:6px">` + renderField(fmap.extreme, 0) + `</div>`;
       // Row 4: Liq Above / Liq Below — 3-col pill grids side-by-side
@@ -1155,12 +1275,12 @@ function render() {
         weekly_bias: "<strong>Weekly Bias — primary structural direction</strong>\nLookback: <strong>8-12 weekly candles</strong> (~2-3 months).\n\nМетодика:\n• HH + HL → Bullish\n• LH + LL → Bearish\n• Mixed / sideways / no clear structure → Balanced\n\nAlt override (H1.21): highly correlated alts inherit BTC Weekly Bias. Independent reading только для non-correlated alts.\n\nDetermines trade Direction.",
         daily_bias: "<strong>Daily Bias — modifier for conviction</strong>\nLookback: <strong>10 daily candles</strong> (~2 weeks).\n\nМетодика:\n• HH + HL за 10 candles → Bullish\n• LH + LL за 10 candles → Bearish\n• Mixed / sideways / no clear structure → Balanced\n\nAlt override (H1.21): highly correlated alts inherit BTC Daily Bias.\n\nIf differs from Weekly → conviction -1 (Weekly still wins direction).",
         liq_draw: "<strong>Target Liq. — direction of target liquidity</strong>\nWhere market is pulled.\n• Above — upside target\n• Below — downside target\n• Both — balance state",
-        draw_level_above: "<strong>Liq. Above — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PMH, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Above. Одна FVG — одна роль.",
-        draw_level_below: "<strong>Liq. Below — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PML, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Below. Одна FVG — одна роль.",
+        draw_level_above: "<strong>Liq. Above — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PMH, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)\n\n<strong>HTF Swing H = ATH (H1.29):</strong>\nИспользуй HTF Swing H для ATH (all-time high) тоже. Mark в Notes: \"ATH\" if relevant.\n\n<strong>Target distance check (H1.22, manual):</strong>\nЕсли target > 4× ATR(1H) от current price → setup is \"premature timing\". Используй ATR(1H) field вверху для расчёта.\nЕсли premature — flag через Wait Mode → target premature.\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Above. Одна FVG — одна роль.",
+        draw_level_below: "<strong>Liq. Below — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PML, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)\n\n<strong>HTF Swing L = ATL (H1.29):</strong>\nИспользуй HTF Swing L для ATL (all-time low) тоже. Mark в Notes: \"ATL\" if relevant.\n\n<strong>Target distance check (H1.22, manual):</strong>\nЕсли target > 4× ATR(1H) от current price → setup is \"premature timing\". Используй ATR(1H) field вверху для расчёта.\nЕсли premature — flag через Wait Mode → target premature.\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Below. Одна FVG — одна роль.",
         swept: "<strong>Recently Swept — HTF liquidity grab</strong>\nLookback: <strong>5-10 trading days</strong>.\n\n<strong>Что засчитывается:</strong>\n• Level type: PDL/PDH/PWL/PWH/PML/PMH/HTF Swing (major, НЕ Session H/L)\n• Sweep depth: <strong>body close beyond level</strong> (не просто wick)\n• Timeframe: Daily candle closed beyond level\n\n<strong>НЕ считается Recently Swept:</strong>\n• Intraday bounces от FVG D / session lows\n• Short wick без body close\n• Minor intraday reactions (→ запиши в Notes если важно)\n\n<strong>Impact:</strong>\n• Same direction as Target Liq. → Post-sweep (-1 conviction, exhaustion warning)\n• Both sides → Transition (NO TRADE blocker)\n• If sweep долго назад (>10 trading days) — leave empty",
         extreme: "<strong>Near HTF Extreme — reversal-qualifier</strong>\nВ КАКОЙ HTF reversal-зоне цена СЕЙЧАС. НЕ \"ближайший уровень к цене\", а extreme откуда институционалы разворачивают рынок.\nMulti-select. Выбери все применимые (например PWH + PMH если они рядом).\n\n<strong>Major (Weekly+ structural):</strong>\n• HTF Swing — Weekly/Monthly major swing point (не intraday)\n• PMH / PML — previous month high/low\n• PWH / PWL — previous week high/low\n\n<strong>Medium (Daily structural):</strong>\n• PDH / PDL — previous day high/low\n• EQH / EQL — equal highs/lows (contested liquidity)\n• MO — monthly open\n\n<strong>Excluded:</strong> Session H/L, DO, WO, FVG — intraday уровни, не qualify как HTF extreme.\n\nЕсли цена в midrange (не в HTF extreme) → оставь пустым → blocker блокирует Reversal.\n\n<strong>Strength impact (сейчас):</strong> display only. Все tiers одинаково qualify для Reversal. Минорные extreme triggers не добавляются — собираем data для validation перед added conviction cost.\n\nEnabled when Mode = Reversal.",
-        barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>2+ of [OB / Wick SNR / Round Number]:</strong> Strong (-2)\n• <strong>OB / Wick SNR / Round Number alone:</strong> Medium (-1)\n• <strong>HTF FVG alone:</strong> Weak (0, usually passes)\n\nHTF FVG не усиливает комбинацию.\nOnly affects Long trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Above (FVG 50% / FVG edge).\nОдна FVG зона — одна роль: либо target либо barrier, не оба.\nЕсли FVG единственная рядом → выбирай её как target в Liq. (где она сильнее влияет), Barrier оставь пустым.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(14) на 1H</strong>. Barrier слишком далеко от цены не влияет на intraday trade.\nЕсли barrier > 2×ATR 1H — оставь пустым, пометь в Notes: \"barrier skipped — distance\".\n<em>Rule под validation, проверяем на практике. Не уверен — лучше mark чем skip.</em>",
-        barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Below. Одна FVG зона — одна роль.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(14) на 1H</strong>. Если barrier > 2×ATR — skip + Notes pomet.\n<em>Rule под validation, проверяем на практике.</em>",
+        barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>2+ of [OB / Wick SNR / Round Number]:</strong> Strong (-2)\n• <strong>OB / Wick SNR / Round Number alone:</strong> Medium (-1)\n• <strong>HTF FVG alone:</strong> Weak (0, usually passes)\n\nHTF FVG не усиливает комбинацию.\nOnly affects Long trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Above (FVG 50% / FVG edge).\nОдна FVG зона — одна роль: либо target либо barrier, не оба.\nЕсли FVG единственная рядом → выбирай её как target в Liq. (где она сильнее влияет), Barrier оставь пустым.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(1H)</strong>. Barrier слишком далеко от цены не влияет на intraday trade.\nИспользуй ATR(1H) field вверху для расчёта: distance(price, barrier) / ATR(1H).\nЕсли barrier > 2× ATR(1H) — оставь пустым, пометь в Notes: \"barrier skipped — distance > 2× ATR(1H)\".\n<em>Rule под validation, проверяем на практике. Не уверен — лучше mark чем skip.</em>",
+        barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Below. Одна FVG зона — одна роль.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(1H)</strong>. Используй ATR(1H) field вверху для расчёта.\nЕсли barrier > 2× ATR(1H) — skip + Notes pomet \"barrier skipped — distance > 2× ATR(1H)\".\n<em>Rule под validation, проверяем на практике.</em>",
         regime: "<strong>Day Regime — position цены относительно MO/WO/DO</strong>\nНЕ momentum, НЕ структура (HH/HL). Чисто position.\n\n• <strong>Trend 3/3 Bull:</strong> price ABOVE all 3 opens → Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Trend 3/3 Bear:</strong> price BELOW all 3 opens → Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Mod 2/3 Bull:</strong> price above 2 of 3 opens → Normal risk (-1 conviction)\n• <strong>Mod 2/3 Bear:</strong> price below 2 of 3 opens → Normal risk (-1 conviction)\n• <strong>Neutral:</strong> mixed / цена лежит на opens → Low risk, Reversal only\n\nEdge case: если цена в пределах small wick (~1%) от open — считать тот open как NEUTRAL (не aligned), склоняться к Mod/Neutral."
       };
       // Unified disable logic for conditional fields
@@ -1407,6 +1527,14 @@ function pickMulti(id, val) {
  
 function pickTop(id, val) {
   state[id] = state[id] === val ? undefined : val;
+  // ATR(1H) per-asset auto-fill — when asset changes, load saved ATR for new asset
+  if (id === "asset") {
+    if (state.asset) {
+      loadATRForAsset(state.asset);
+    }
+    // If asset deselected — clear ATR display (но не удалять persisted values)
+    if (!state.asset) state.atr_1h = undefined;
+  }
   localStorage.setItem('tc_state', JSON.stringify(state));
   // Update top pills styling
   document.querySelectorAll(`[id^="pill_${id}_"]`).forEach(b => {
@@ -1414,6 +1542,34 @@ function pickTop(id, val) {
   });
   const el = document.getElementById(`pill_${id}_${val}`);
   if (el && state[id] === val) el.className = 'pill sel';
+  // Re-render to pick up new ATR value in the input field
+  if (id === "asset") render();
+}
+ 
+// ATR(1H) input handler — saves per-asset, updates state, re-renders to update distance check displays
+function setATR1H(value) {
+  if (value === "" || value === null || value === undefined) {
+    state.atr_1h = undefined;
+  } else {
+    const parsed = parseFloat(value);
+    state.atr_1h = isNaN(parsed) ? undefined : parsed;
+  }
+  // Persist per asset
+  saveATRForAsset(state.asset, state.atr_1h);
+  // Persist state for general restore
+  localStorage.setItem('tc_state', JSON.stringify(state));
+  render();
+}
+ 
+// H1.25 / H1.24 (2026-04-27): Wait Mode override handler — sets sub-type or clears
+function setWaitSubType(value) {
+  if (value === "" || value === null || value === undefined) {
+    state.wait_sub_type = undefined;
+  } else {
+    state.wait_sub_type = value;
+  }
+  localStorage.setItem('tc_state', JSON.stringify(state));
+  render();
 }
  
 function renderTopPills() {
@@ -1577,7 +1733,14 @@ async function skipToNotion() {
   const {label: convSave, triggers: trigSave} = computeConviction();
   if (convSave) props["Conviction"] = convSave + " (-" + trigSave + ")";
   const modeSave = computeMode(); if (modeSave) props["Trade Mode"] = modeSave;
-  const notes = document.getElementById("notes").value;
+  let notes = document.getElementById("notes").value;
+  // H1.25/H1.24 (2026-04-27): auto-append Wait Mode metadata if set (skip path)
+  const metaLinesSkip = [];
+  if (state.wait_sub_type) metaLinesSkip.push("Wait Sub-type: " + state.wait_sub_type);
+  if (state.atr_1h && state.atr_1h > 0) metaLinesSkip.push("ATR(1H): " + state.atr_1h);
+  if (metaLinesSkip.length) {
+    notes = (notes ? notes + "\n\n" : "") + metaLinesSkip.join("\n");
+  }
   if (notes) props["Notes"] = notes;
   const screenshot = document.getElementById("screenshot").value;
   if (screenshot) props["Screenshot"] = screenshot;
@@ -1657,7 +1820,19 @@ async function saveToNotion() {
   const rr = localStorage.getItem("tc_rr");
   if (rr) props["RR Target"] = rr;
   // Notes & Screenshot
-  const notes = document.getElementById("notes").value;
+  let notes = document.getElementById("notes").value;
+  // H1.25/H1.24 (2026-04-27): auto-append Wait Mode metadata if set
+  // ATR(1H) value also appended for journal completeness
+  const metaLines = [];
+  if (state.wait_sub_type) {
+    metaLines.push("Wait Sub-type: " + state.wait_sub_type);
+  }
+  if (state.atr_1h && state.atr_1h > 0) {
+    metaLines.push("ATR(1H): " + state.atr_1h);
+  }
+  if (metaLines.length) {
+    notes = (notes ? notes + "\n\n" : "") + metaLines.join("\n");
+  }
   if (notes) props["Notes"] = notes;
   const screenshot = document.getElementById("screenshot").value;
   if (screenshot) props["Screenshot"] = screenshot;
@@ -1687,6 +1862,12 @@ try {
   const d = localStorage.getItem('tc_disp');
   if (d) dispState = JSON.parse(d);
 } catch(e) {}
+ 
+// ATR(1H) per-asset load — if asset is selected, restore ATR for that asset
+// (state.atr_1h might be stale from different asset, override with per-asset value)
+if (state.asset) {
+  loadATRForAsset(state.asset);
+}
  
 // H1.19 — Clear persisted Notes on new tab/window session (per-setup intent).
 // sessionStorage persists across F5 refresh but not across tab close → Notes stays empty

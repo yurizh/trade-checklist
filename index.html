@@ -161,8 +161,10 @@ const GROUPS = [
       {id:"draw_level_below",label:"Liq. Below",opts:["HTF Swing L","PML","PWL","MO","PDL","WO","EQL","FVG 50%","Round Number","Session L","DO","FVG edge"],optional:true,multi:true}
     ]},
   { key:"market", title:"2. MARKET STATE", color:"#8b5cf6",
-    rules:"Bullish=P↑+OI↑ | Bearish=P↓+OI↑ | Squeeze=OI↓→⛔ wait resolution | Flat=OI flat→⛔",
+    rules:"Bullish=P↑+OI↑ | Bearish=P↓+OI↑ | Squeeze=OI↓→⛔ wait resolution | Flat=OI flat→⛔ | Pre-Market (10-15h) optional — adds path context (H2.x)",
     fields:[
+      {id:"pricedir_pre",label:"Pre Price 10-15h",opts:["Up","Down","Flat"],optional:true},
+      {id:"oidir_pre",label:"Pre OI 10-15h",opts:["Rising","Falling","Flat"],optional:true},
       {id:"pricedir",label:"Price 3-5h",opts:["Up","Down","Flat"]},
       {id:"oidir",label:"OI 3-5h",opts:["Rising","Falling","Flat"]}
     ]},
@@ -546,6 +548,91 @@ function computeMarketState() {
   if (p === "Flat" && oi === "Rising") return "Absorption";
   if (p === "Flat" && oi === "Falling") return "Flat⛔";
   return null;
+}
+ 
+// H2.x (2026-04-28): Pre-Market State — same matrix as computeMarketState, predecessor inputs.
+// Used для Path Transition annotation. Optional fields — returns null if either empty.
+// ⛔ marker preserved for naming consistency но has NO blocker effect (predecessor is annotation only).
+function computeMarketStatePre() {
+  const p = state.pricedir_pre;
+  const oi = state.oidir_pre;
+  if (!p || !oi) return null;
+  if (oi === "Flat") return "Flat⛔";
+  if (p === "Up" && oi === "Rising") return "Bullish";
+  if (p === "Down" && oi === "Rising") return "Bearish";
+  if (p === "Down" && oi === "Falling") return "L.Squeeze⛔";
+  if (p === "Up" && oi === "Falling") return "S.Squeeze⛔";
+  if (p === "Flat" && oi === "Rising") return "Absorption";
+  if (p === "Flat" && oi === "Falling") return "Flat⛔";
+  return null;
+}
+ 
+// H2.x (2026-04-28): Path Transition — combines Pre-Market State + Current Market State
+// into category label. 21 named categories per spec §3.3 + edge case fallback (raw path string).
+// Returns object: { category: string, raw: string, isEdgeCase: bool, interpretation: string } or null
+function computePathTransition() {
+  const pre = computeMarketStatePre();
+  const cur = computeMarketState();
+  if (!pre || !cur) return null;
+  
+  const raw = `${pre} → ${cur}`;
+  
+  // 21 named categories (spec §3.3)
+  const categories = {
+    // Sustained Trend (2)
+    "Bullish → Bullish": { category: "Sustained bullish", interpretation: "Trend continuation — momentum and positioning aligned. Strong context for HTF-aligned long entries." },
+    "Bearish → Bearish": { category: "Sustained bearish", interpretation: "Trend continuation — momentum and positioning aligned. Strong context for HTF-aligned short entries." },
+    
+    // Reversal (2)
+    "Bullish → Bearish": { category: "Reversal: bullish → bearish", interpretation: "Direction flipped with positioning rebuild. Reversal candidate — verify HTF supports new direction before entry." },
+    "Bearish → Bullish": { category: "Reversal: bearish → bullish", interpretation: "Direction flipped with positioning rebuild. Reversal candidate — verify HTF supports new direction before entry." },
+    
+    // Trend Acceleration / Squeeze Forming — UNCERTAIN per H2.2 (2)
+    "Bullish → S.Squeeze⛔": { category: "Short capitulation in bullish trend", interpretation: "Shorts covering during bullish move (P↑ + OI↓). <strong>Direction uncertain</strong> — short cover ≠ new buying. At HTF extreme = likely mean reversion; subsequent OI rebuild = continuation possible; sustained OI decline = trend likely exhausting. See H2.2." },
+    "Bearish → L.Squeeze⛔": { category: "Long capitulation in bearish trend", interpretation: "Longs liquidating during bearish move (P↓ + OI↓). <strong>Direction uncertain</strong> — forced sellers ≠ new shorting. At HTF extreme = likely mean reversion; subsequent OI rebuild = continuation possible; sustained OI decline = trend likely exhausting. See H2.2." },
+    
+    // Exhaustion (4)
+    "Bullish → Absorption": { category: "Bullish exhaustion", interpretation: "Trend stalled with OI still building. Possible distribution top OR accumulation pause. Critical: at HTF extreme = likely reversal; mid-range = likely continuation." },
+    "Bullish → Flat⛔": { category: "Bullish exhaustion + OI exit", interpretation: "Trend stalled AND OI exiting. Stronger signal trend complete. Lean toward reversal или wait." },
+    "Bearish → Absorption": { category: "Bearish exhaustion", interpretation: "Trend stalled with OI still building. Possible capitulation bottom OR distribution pause. Same HTF context check." },
+    "Bearish → Flat⛔": { category: "Bearish exhaustion + OI exit", interpretation: "Trend stalled AND OI exiting. Lean toward reversal или wait." },
+    
+    // Squeeze Sustained (2)
+    "L.Squeeze⛔ → L.Squeeze⛔": { category: "Sustained long squeeze", interpretation: "Long unwind in progress, не fresh signal. Already played out partially. Watch for resolution." },
+    "S.Squeeze⛔ → S.Squeeze⛔": { category: "Sustained short squeeze", interpretation: "Short cover in progress, не fresh signal. Already played out partially. Watch for resolution." },
+    
+    // Post-Squeeze Recovery (2)
+    "L.Squeeze⛔ → Bullish": { category: "Long squeeze recovery", interpretation: "After long unwind — buyers re-engaging. Mean-reversion long candidate if HTF supports." },
+    "S.Squeeze⛔ → Bearish": { category: "Short squeeze recovery", interpretation: "After short cover — sellers re-engaging. Mean-reversion short candidate if HTF supports." },
+    
+    // Absorption Resolution (3)
+    "Absorption → Bullish": { category: "Absorption breakout up", interpretation: "Range with OI build resolved upward. Coil-to-trend transition — strong continuation pattern when HTF aligned." },
+    "Absorption → Bearish": { category: "Absorption breakdown", interpretation: "Range with OI build resolved downward. Coil-to-trend transition — strong continuation pattern when HTF aligned." },
+    "Absorption → Absorption": { category: "Sustained accumulation", interpretation: "Continued OI build без price movement. Pre-breakout coil — wait for direction clarity." },
+    
+    // Range Transitions (4)
+    "Flat⛔ → Flat⛔": { category: "Persistent inactivity", interpretation: "No conviction either side. Wait для market activation." },
+    "Flat⛔ → Bullish": { category: "Activity resumes bullish", interpretation: "Market wakes up bullish from range. Watch for sustained direction confirmation." },
+    "Flat⛔ → Bearish": { category: "Activity resumes bearish", interpretation: "Market wakes up bearish from range. Watch for sustained direction confirmation." },
+    "Flat⛔ → Absorption": { category: "Range tightening with OI build", interpretation: "Range continues but OI starts building. Early-stage coil deepening — watch for breakout direction soon." }
+  };
+  
+  if (categories[raw]) {
+    return {
+      category: categories[raw].category,
+      raw: raw,
+      isEdgeCase: false,
+      interpretation: categories[raw].interpretation
+    };
+  }
+  
+  // Edge case — raw path display
+  return {
+    category: raw,
+    raw: raw,
+    isEdgeCase: true,
+    interpretation: "Uncommon transition pattern. Manually assess context."
+  };
 }
  
 function computeMode() {
@@ -1298,7 +1385,12 @@ function render() {
         extreme: "<strong>Near HTF Extreme — reversal-qualifier</strong>\nВ КАКОЙ HTF reversal-зоне цена СЕЙЧАС. НЕ \"ближайший уровень к цене\", а extreme откуда институционалы разворачивают рынок.\nMulti-select. Выбери все применимые (например PWH + PMH если они рядом).\n\n<strong>Major (Weekly+ structural):</strong>\n• HTF Swing — Weekly/Monthly major swing point (не intraday)\n• PMH / PML — previous month high/low\n• PWH / PWL — previous week high/low\n\n<strong>Medium (Daily structural):</strong>\n• PDH / PDL — previous day high/low\n• EQH / EQL — equal highs/lows (contested liquidity)\n• MO — monthly open\n\n<strong>Excluded:</strong> Session H/L, DO, WO, FVG — intraday уровни, не qualify как HTF extreme.\n\nЕсли цена в midrange (не в HTF extreme) → оставь пустым → blocker блокирует Reversal.\n\n<strong>Strength impact (сейчас):</strong> display only. Все tiers одинаково qualify для Reversal. Минорные extreme triggers не добавляются — собираем data для validation перед added conviction cost.\n\nEnabled when Mode = Reversal или Wait (H1.25/H1.24 2026-04-27).\nReversal: required (empty → blocker).\nWait: optional (recommended for post_sweep_digestion to identify swept level).",
         barrier_above: "<strong>Barrier Above — resistance</strong>\nMulti-select. Pick all that apply.\n\n• <strong>2+ of [OB / Wick SNR / Round Number]:</strong> Strong (-2)\n• <strong>OB / Wick SNR / Round Number alone:</strong> Medium (-1)\n• <strong>HTF FVG alone:</strong> Weak (0, usually passes)\n\nHTF FVG не усиливает комбинацию.\nOnly affects Long trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Above (FVG 50% / FVG edge).\nОдна FVG зона — одна роль: либо target либо barrier, не оба.\nЕсли FVG единственная рядом → выбирай её как target в Liq. (где она сильнее влияет), Barrier оставь пустым.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(1H)</strong>. Barrier слишком далеко от цены не влияет на intraday trade.\nИспользуй ATR(1H) field вверху для расчёта: distance(price, barrier) / ATR(1H).\nЕсли barrier > 2× ATR(1H) — оставь пустым, пометь в Notes: \"barrier skipped — distance > 2× ATR(1H)\".\n<em>Rule под validation, проверяем на практике. Не уверен — лучше mark чем skip.</em>",
         barrier_below: "<strong>Barrier Below — support</strong>\nMulti-select. Same hierarchy as Barrier Above.\nOnly affects Short trades.\n\n<strong>FVG dual-role discipline (O7.12):</strong>\nHTF FVG здесь = FVG МЕЖДУ ценой и target. НЕ тот FVG который ты уже выбрал как target в Liq. Below. Одна FVG зона — одна роль.\n\n<strong>Distance filter (O7.2, manual check):</strong>\nBarrier засчитывается только если distance ≤ <strong>2 × ATR(1H)</strong>. Используй ATR(1H) field вверху для расчёта.\nЕсли barrier > 2× ATR(1H) — skip + Notes pomet \"barrier skipped — distance > 2× ATR(1H)\".\n<em>Rule под validation, проверяем на практике.</em>",
-        regime: "<strong>Day Regime — position цены относительно MO/WO/DO</strong>\nНЕ momentum, НЕ структура (HH/HL). Чисто position.\n\n• <strong>Trend 3/3 Bull:</strong> price ABOVE all 3 opens → Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Trend 3/3 Bear:</strong> price BELOW all 3 opens → Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Mod 2/3 Bull:</strong> price above 2 of 3 opens → Normal risk (-1 conviction)\n• <strong>Mod 2/3 Bear:</strong> price below 2 of 3 opens → Normal risk (-1 conviction)\n• <strong>Neutral:</strong> mixed / цена лежит на opens → Low risk, Reversal only\n\nEdge case: если цена в пределах small wick (~1%) от open — считать тот open как NEUTRAL (не aligned), склоняться к Mod/Neutral."
+        regime: "<strong>Day Regime — position цены относительно MO/WO/DO</strong>\nНЕ momentum, НЕ структура (HH/HL). Чисто position.\n\n• <strong>Trend 3/3 Bull:</strong> price ABOVE all 3 opens → Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Trend 3/3 Bear:</strong> price BELOW all 3 opens → Max risk, Continuation\n  → Cancels Liq. Minor trigger\n• <strong>Mod 2/3 Bull:</strong> price above 2 of 3 opens → Normal risk (-1 conviction)\n• <strong>Mod 2/3 Bear:</strong> price below 2 of 3 opens → Normal risk (-1 conviction)\n• <strong>Neutral:</strong> mixed / цена лежит на opens → Low risk, Reversal only\n\nEdge case: если цена в пределах small wick (~1%) от open — считать тот open как NEUTRAL (не aligned), склоняться к Mod/Neutral.",
+        // S2 Market State tooltips (added 2026-04-28)
+        pricedir_pre: "<strong>Pre-Market Price (10-15h) — predecessor context</strong>\nWhat happened 10-15 hours before current 3-5h window. Subjective eyeball assessment.\n\n<strong>Up:</strong> price clearly trending up over 10-15h\n<strong>Down:</strong> price clearly trending down\n<strong>Flat:</strong> ranging / no clear direction\n\n<strong>Optional field (H2.x — 2026-04-28):</strong>\nProvides Path Transition annotation for current state. Captures \"how we arrived\" context — same Current Market State has different meanings depending on predecessor (e.g. Bullish→Absorption = exhaustion; Flat→Absorption = coil).\n\nLeave empty if не уверен — Current Market State logic unaffected. See Market_State_Specification.md.",
+        oidir_pre: "<strong>Pre-Market OI (10-15h) — predecessor positioning</strong>\nOI behavior 10-15 hours before current 3-5h window. Subjective eyeball assessment.\n\n<strong>Rising:</strong> OI clearly building over 10-15h\n<strong>Falling:</strong> OI clearly contracting\n<strong>Flat:</strong> OI relatively stable\n\n<strong>Optional field (H2.x — 2026-04-28):</strong>\nCombines с Pre-Market Price для path category computation. Reveals positioning narrative (e.g. \"longs trapped from up move\" vs \"shorts capitulating during up move\").\n\nLeave empty if не уверен. See Market_State_Specification.md.",
+        pricedir: "<strong>Market Price (3-5h) — current intraday direction</strong>\nPrice movement in last 3-5 hours. Subjective eyeball assessment.\n\n<strong>Up:</strong> price clearly trending up\n<strong>Down:</strong> price clearly trending down\n<strong>Flat:</strong> ranging / no clear direction\n\n<strong>Pine-script automation reference (H2.12, calibration):</strong>\nUp = >0.3% over 5h (20 × 15M candles). Down = <-0.3%. Eyeball OK для manual fill — threshold mention provides reference for manual↔auto consistency check.",
+        oidir: "<strong>Market OI (3-5h) — current intraday positioning</strong>\nOI behavior in last 3-5 hours. Subjective eyeball assessment.\n\n<strong>Rising:</strong> OI clearly building\n<strong>Falling:</strong> OI clearly contracting\n<strong>Flat:</strong> OI relatively stable\n\n<strong>Pine-script automation reference (H2.12, calibration):</strong>\nOI Rising = >1% over 5h. OI Falling = <-1%. Eyeball OK для manual fill — threshold mention provides reference for manual↔auto consistency check.\n\n<strong>Combines with Price (3-5h) для Market State verdict:</strong>\nP↑+OI↑=Bullish · P↓+OI↑=Bearish · P↑+OI↓=S.Squeeze⛔ · P↓+OI↓=L.Squeeze⛔ · P=Flat+OI↑=Absorption · OI=Flat=Flat⛔"
       };
       // Unified disable logic for conditional fields
       const mode = computeMode();
@@ -1420,9 +1512,34 @@ function render() {
         }
         html += `</div></div>`;
       }
+      // H2.x (2026-04-28): Path Transition annotation — adaptive display
+      // Brief in compact (next to verdict), full block in verbose details
+      const path = computePathTransition();
+      const pre = computeMarketStatePre();
       html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
       html += `<span style="font-size:13px;font-weight:700;color:${msColor}">${stateLabel}</span>`;
+      if (path) {
+        // Compact display — category in parens
+        const pathColor = path.isEdgeCase ? "var(--muted)" : "var(--yellow, #ca8a04)";
+        html += ` <span style="font-size:11px;color:${pathColor};font-weight:500">(${path.category})</span>`;
+      } else if (pre) {
+        // Pre-Market filled but Current not — prompt
+        html += ` <span style="font-size:10px;color:var(--muted);font-weight:400">(fill Market for path)</span>`;
+      }
       html += `</div>`;
+      // Verbose details — full Path Transition block
+      if (isVerboseOn() && (path || pre)) {
+        html += `<div style="margin-top:4px;padding:6px 8px;background:rgba(139,92,246,0.05);border-left:2px solid #8b5cf6;font-size:11px;line-height:1.5">`;
+        if (path) {
+          html += `<div><b>Path Transition:</b> ${path.category}</div>`;
+          html += `<div style="color:var(--muted);font-size:10px;margin-top:2px">Predecessor: ${pre || '—'} → Current: ${ms || '—'}</div>`;
+          html += `<div style="color:var(--muted);font-size:10px;margin-top:4px">${path.interpretation}</div>`;
+        } else if (pre) {
+          html += `<div><b>Pre-Market State:</b> ${pre}</div>`;
+          html += `<div style="color:var(--muted);font-size:10px;margin-top:2px">Fill Market Price + OI to compute Path Transition.</div>`;
+        }
+        html += `</div>`;
+      }
     }
     if (g.extra === "trade_nums") {
       // SECTION 8: AGGREGATOR — all sections combined
@@ -1695,6 +1812,9 @@ const FIELD_MAP = {
   pricedir:["",null],
   sqzresol:["",null],
   oidir:["",null],
+  // S2 Pre-Market fields (added 2026-04-28, H2.x path-awareness)
+  pricedir_pre:["Pre-Market Price",{Up:"Up",Down:"Down",Flat:"Flat"}],
+  oidir_pre:["Pre-Market OI",{Rising:"Rising",Falling:"Falling",Flat:"Flat"}],
   oi15_price:["",null],
   oi15_oi:["",null],
   f_level:["",null],
@@ -1740,6 +1860,16 @@ async function skipToNotion() {
   }
   const ms = computeMarketState();
   if (ms) { const msMap = {Bullish:"Bullish",Bearish:"Bearish","L.Squeeze⛔":"Long Squeeze","S.Squeeze⛔":"Short Squeeze","Flat⛔":"Flat",Absorption:"Flat"}; if (msMap[ms]) props["Market State"] = msMap[ms]; }
+  // S2 Pre-Market State + Path Transition (added 2026-04-28, H2.x path-awareness — skip path)
+  const msPreSkip = computeMarketStatePre();
+  if (msPreSkip) {
+    const msMap = {Bullish:"Bullish",Bearish:"Bearish","L.Squeeze⛔":"Long Squeeze","S.Squeeze⛔":"Short Squeeze","Flat⛔":"Flat",Absorption:"Flat"};
+    if (msMap[msPreSkip]) props["Pre-Market State"] = msMap[msPreSkip];
+  }
+  const pathSkipSave = computePathTransition();
+  if (pathSkipSave) {
+    props["Path Transition"] = pathSkipSave.isEdgeCase ? "Edge case" : pathSkipSave.category;
+  }
   const oi15 = computeOI15M();
   if (oi15) { const oiMap = {"Confirms✅":"Confirms","Against↓":"Against","Flat↓":"Flat","Spike⛔":"Spike","Diverge⛔":"Diverge"}; if (oiMap[oi15]) props["OI Confirm"] = oiMap[oi15]; }
   const phase = computeLiquidityPhase();
@@ -1804,6 +1934,18 @@ async function saveToNotion() {
   if (ms) {
     const msMap = {Bullish:"Bullish",Bearish:"Bearish","L.Squeeze⛔":"Long Squeeze","S.Squeeze⛔":"Short Squeeze","Flat⛔":"Flat",Absorption:"Flat"};
     if (msMap[ms]) props["Market State"] = msMap[ms];
+  }
+  // S2 Pre-Market State + Path Transition (added 2026-04-28, H2.x path-awareness)
+  // Pre-Market State uses same Notion mapping (Bullish/Bearish/Long Squeeze/Short Squeeze/Flat/Absorption→Flat)
+  const msPre = computeMarketStatePre();
+  if (msPre) {
+    const msMap = {Bullish:"Bullish",Bearish:"Bearish","L.Squeeze⛔":"Long Squeeze","S.Squeeze⛔":"Short Squeeze","Flat⛔":"Flat",Absorption:"Flat"};
+    if (msMap[msPre]) props["Pre-Market State"] = msMap[msPre];
+  }
+  const pathSave = computePathTransition();
+  if (pathSave) {
+    // Save category name; для edge cases use "Edge case" placeholder so Notion select stays valid
+    props["Path Transition"] = pathSave.isEdgeCase ? "Edge case" : pathSave.category;
   }
   const oi15 = computeOI15M();
   if (oi15) {

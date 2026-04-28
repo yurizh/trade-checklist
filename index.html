@@ -215,15 +215,25 @@ let dispState = {d_body:false, d_wick:false, d_range:false, d_vol:false};
 let rulesOpen = {};
 let postOpen = false;
  
-// ATR(1H) persistence + distance helpers (H1.22, H1.25, O7.2 — added 2026-04-27)
-// Per-asset persistence: localStorage['tc_atr_1h_BTC'], 'tc_atr_1h_ETH', etc.
-// On asset switch — auto-fill state.atr_1h from saved value for that asset.
+// ATR persistence + distance helpers (H1.22, H1.25, O7.2 — added 2026-04-27)
+// H8.1 (2026-04-28): extended to support both ATR(14) @ 1H (Intraday) и ATR(14) @ 1D (Swing).
+// Per-asset persistence: localStorage['tc_atr_1h_BTC'], 'tc_atr_d_BTC', etc.
+// On asset switch — auto-fill both state.atr_1h и state.atr_d from saved values for that asset.
 function loadATRForAsset(asset) {
   if (!asset) return;
-  const saved = localStorage.getItem('tc_atr_1h_' + asset);
-  if (saved !== null && saved !== "") {
-    state.atr_1h = parseFloat(saved);
+  const saved1h = localStorage.getItem('tc_atr_1h_' + asset);
+  if (saved1h !== null && saved1h !== "") {
+    state.atr_1h = parseFloat(saved1h);
     if (isNaN(state.atr_1h)) state.atr_1h = undefined;
+  } else {
+    state.atr_1h = undefined;
+  }
+  const savedD = localStorage.getItem('tc_atr_d_' + asset);
+  if (savedD !== null && savedD !== "") {
+    state.atr_d = parseFloat(savedD);
+    if (isNaN(state.atr_d)) state.atr_d = undefined;
+  } else {
+    state.atr_d = undefined;
   }
 }
 function saveATRForAsset(asset, value) {
@@ -234,10 +244,38 @@ function saveATRForAsset(asset, value) {
     localStorage.setItem('tc_atr_1h_' + asset, String(value));
   }
 }
-// distanceInAtr — null if ATR missing/invalid, else distance ratio
+function saveATRDForAsset(asset, value) {
+  if (!asset) return;
+  if (value === undefined || value === null || value === "") {
+    localStorage.removeItem('tc_atr_d_' + asset);
+  } else {
+    localStorage.setItem('tc_atr_d_' + asset, String(value));
+  }
+}
+// H8.1: Trade horizon helpers — Intraday selects ATR(1H), Swing selects ATR(D).
+// Multipliers per horizon (target_premature, barrier_active, post_sweep_digestion):
+const HORIZON_MULTIPLIERS = {
+  Intraday: { target: 4, barrier: 2, digestion: 2 },
+  Swing:    { target: 2.5, barrier: 1, digestion: 1 }
+};
+function activeATR() {
+  // Returns active ATR value based on trade_horizon, or null if horizon/ATR not set
+  if (state.trade_horizon === "Intraday") return (state.atr_1h && state.atr_1h > 0) ? state.atr_1h : null;
+  if (state.trade_horizon === "Swing")    return (state.atr_d  && state.atr_d  > 0) ? state.atr_d  : null;
+  return null;
+}
+function activeATRLabel() {
+  if (state.trade_horizon === "Intraday") return "ATR(1H)";
+  if (state.trade_horizon === "Swing")    return "ATR(D)";
+  return "ATR";
+}
+function activeMultipliers() {
+  return HORIZON_MULTIPLIERS[state.trade_horizon] || null;
+}
+// distanceInAtr — null if ATR missing/invalid OR horizon not set, else distance ratio
 function distanceInAtr(price1, price2) {
-  const atr = state.atr_1h;
-  if (!atr || atr <= 0) return null;
+  const atr = activeATR();
+  if (!atr) return null;
   if (price1 === undefined || price2 === undefined || isNaN(price1) || isNaN(price2)) return null;
   return Math.abs(price1 - price2) / atr;
 }
@@ -1021,16 +1059,21 @@ function renderVerboseHTF() {
   if (risk) out += `<span style="color:var(--muted)">risk:</span> ${risk} (Regime = ${regStr||"—"})`;
   out += `</div>`;
  
-  // Mode
   // H1.25 / H1.24 (2026-04-27): Wait mode display with sub-type
+  // H8.1 (2026-04-28): resolution text now horizon-aware (Intraday=4× ATR(1H), Swing=2.5× ATR(D))
   const waitDisplay = (sub) => {
     if (sub === "post_sweep_digestion") return "Wait — post-sweep digestion";
     if (sub === "target_premature") return "Wait — target premature";
     return "Wait";
   };
   const waitResolution = (sub) => {
+    const m = activeMultipliers();
+    const atrLbl = activeATRLabel();
     if (sub === "post_sweep_digestion") return "watch for retest of swept extreme или decisive directional close";
-    if (sub === "target_premature") return "watch for entry zone closer (target should be ≤ 4× ATR(1H) from current price)";
+    if (sub === "target_premature") {
+      if (m) return `watch for entry zone closer (target should be ≤ ${m.target}× ${atrLbl} from current price)`;
+      return "watch for entry zone closer (target should be reachable from current price)";
+    }
     return "watch for resolution";
   };
   const modeDisplay = mode === "Wait" ? waitDisplay(S.wait_sub_type) : (mode || "—");
@@ -1047,10 +1090,16 @@ function renderVerboseHTF() {
   } else if (mode === "Wait") {
     out += `<span style="color:var(--yellow, #ca8a04)">⚠</span> Manual Wait override (sub-type: ${S.wait_sub_type})<br>`;
     out += `<span style="color:var(--muted)">  ·</span> Resolution: ${waitResolution(S.wait_sub_type)}<br>`;
-    if (state.atr_1h && state.atr_1h > 0) {
-      out += `<span style="color:var(--muted)">  ·</span> ATR(1H) = ${state.atr_1h} (use for distance check)<br>`;
+    // H8.1 (2026-04-28): horizon-aware ATR display
+    const _h = state.trade_horizon;
+    const _atr = activeATR();
+    const _lbl = activeATRLabel();
+    if (!_h) {
+      out += `<span style="color:var(--yellow, #ca8a04)">⏸</span> Trade Horizon not set — pick Intraday или Swing для distance check<br>`;
+    } else if (_atr) {
+      out += `<span style="color:var(--muted)">  ·</span> ${_lbl} = ${_atr} (horizon: ${_h}, use for distance check)<br>`;
     } else {
-      out += `<span style="color:var(--muted)">  ·</span> ATR(1H) not provided — distance check manual<br>`;
+      out += `<span style="color:var(--muted)">  ·</span> ${_lbl} not provided — distance check manual<br>`;
     }
     // O7.14 (2026-04-27): HTF↔LTF bridge — explicit hand-off to Entry Trigger section
     // Wait Mode на HTF level — это filter "don't enter yet". Operational confirmation lives в Section 5.
@@ -1302,20 +1351,52 @@ function render() {
       html += renderField(fmap.regime, 0);
       html += renderField(fmap.swept, 0);
       html += `</div>`;
-      // Row 2.5: ATR(1H) + Wait Mode Override — discipline tools (powers H1.22, H1.25, O7.2)
-      const atrTooltip = "<strong>ATR(1H) — 1-hour ATR(14) value</strong>\nCurrent value of ATR(14) on 1H chart. Get from TradingView: add ATR indicator (length 14) на 1H chart, прочитай current value.\n\n<strong>Используется для (manual checks):</strong>\n• <strong>O7.2:</strong> Barrier active if distance ≤ 2× ATR(1H) — manually verify, mark в Notes if barrier > 2×ATR\n• <strong>H1.22:</strong> Target premature if distance > 4× ATR(1H) — manually flag через Wait Mode → target premature\n• <strong>H1.25:</strong> Post-sweep digestion if distance from swept extreme > 2× ATR(1H) — flag через Wait Mode → post-sweep digestion\n\n<strong>Опционально</strong> — поле служит anchor для discipline. Сохраняется per-asset (BTC/ETH/SOL/PEPE) — при смене asset автоматически загружается последнее значение.";
-      const waitTooltip = "<strong>Wait Mode override (H1.25 / H1.24)</strong>\nManual flag: setup структурно valid но resolution pending. Используй когда auto Mode не отражает реальность.\n\n<strong>Sub-types:</strong>\n• <strong>post-sweep digestion (H1.25 state 2):</strong> sweep happened, цена сделала significant retreat (> 2× ATR(1H) от swept extreme), waiting for re-test или decisive close\n• <strong>target premature (H1.22):</strong> structurally valid setup но target слишком далеко (> 4× ATR(1H)), watch for entry zone closer\n\n<strong>Effect:</strong> Mode = Wait, conviction рассчитывается normally, journal records sub-type для analysis. Не блокирует setup — это discipline marker.\n\n<strong>(auto)</strong> = no override, system computes Mode normally.";
-      const atrCurrent = (state.atr_1h !== undefined && state.atr_1h !== null) ? state.atr_1h : "";
+      // Row 2.5: Trade Horizon + ATR(14) @ 1H + ATR(14) @ 1D + Wait Mode Override (H8.1 — horizon-aware)
+      const horizonTooltip = "<strong>Trade Horizon (H8.1) — REQUIRED</strong>\nDeclares intended trade timeframe. Determines which ATR field used for distance check.\n\n<strong>Intraday:</strong> hours — same session entry/exit. Distance check uses <strong>ATR(14) @ 1H</strong>.\n• target premature if distance > <strong>4× ATR(1H)</strong>\n• barrier active if distance ≤ <strong>2× ATR(1H)</strong>\n• post-sweep digestion if distance > <strong>2× ATR(1H)</strong>\n\n<strong>Swing:</strong> 2-7 days — multi-session hold. Distance check uses <strong>ATR(14) @ 1D</strong>.\n• target premature if distance > <strong>2.5× ATR(D)</strong>\n• barrier active if distance ≤ <strong>1× ATR(D)</strong>\n• post-sweep digestion if distance > <strong>1× ATR(D)</strong>\n\n<strong>Why required:</strong> trade horizon = your time availability today, not pure technical decision. Forces conscious commit before analysis.\n\n<strong>Не set:</strong> distance check disabled — system shows ⏸ pending state.";
+      const atrTooltip1H = "<strong>ATR(14) @ 1H — for Intraday horizon</strong>\nValue of ATR(14) RMA on 1H timeframe. Read from Displacement Scanner table → HTF CONTEXT section → 'ATR 1H' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 hour\n\n<strong>Used in distance checks (Intraday horizon only):</strong>\n• <strong>O7.2:</strong> Barrier active if distance ≤ 2× ATR(1H)\n• <strong>H1.22:</strong> Target premature if distance > 4× ATR(1H)\n• <strong>H1.25:</strong> Post-sweep digestion if distance from swept extreme > 2× ATR(1H)\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
+      const atrTooltipD = "<strong>ATR(14) @ 1D — for Swing horizon</strong>\nValue of ATR(14) RMA on Daily timeframe. Read from Displacement Scanner table → HTF CONTEXT section → 'ATR D' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 day\n\n<strong>Used in distance checks (Swing horizon only):</strong>\n• Barrier active if distance ≤ 1× ATR(D)\n• Target premature if distance > 2.5× ATR(D)\n• Post-sweep digestion if distance from swept extreme > 1× ATR(D)\n\n<em>Multipliers (2.5× / 1×) are starting calibration — validate after 10-20 swing setups.</em>\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
+      const waitTooltip = "<strong>Wait Mode override (H1.25 / H1.24)</strong>\nManual flag: setup структурно valid но resolution pending. Используй когда auto Mode не отражает реальность.\n\n<strong>Sub-types (H8.1: thresholds horizon-aware):</strong>\n• <strong>post-sweep digestion:</strong> sweep happened, цена сделала significant retreat от swept extreme (Intraday: > 2× ATR(1H); Swing: > 1× ATR(D)), waiting for re-test или decisive close\n• <strong>target premature:</strong> structurally valid setup но target слишком далеко (Intraday: > 4× ATR(1H); Swing: > 2.5× ATR(D)), watch for entry zone closer\n\n<strong>Effect:</strong> Mode = Wait, conviction рассчитывается normally, journal records sub-type для analysis. Не блокирует setup — это discipline marker.\n\n<strong>(auto)</strong> = no override, system computes Mode normally.";
+      const atrCurrent1H = (state.atr_1h !== undefined && state.atr_1h !== null) ? state.atr_1h : "";
+      const atrCurrentD = (state.atr_d !== undefined && state.atr_d !== null) ? state.atr_d : "";
       const atrCurrentAsset = state.asset || "";
       const waitCurrent = state.wait_sub_type || "";
+      const horizonCurrent = state.trade_horizon || "";
       html += `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:6px">`;
-      // ATR(1H) input
+      // Trade Horizon dropdown — REQUIRED (H8.1)
       html += `<div style="display:flex;align-items:center;gap:8px">`;
-      html += `<span class="lbl"><span class="tip">ATR(1H) ⓘ<span class="tip-box">${atrTooltip}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
-      html += `<input type="text" inputmode="decimal" id="inp_atr_1h" class="mini-input" style="width:100px" placeholder="e.g. 0.5" value="${atrCurrent}" onchange="setATR1H(this.value)" onblur="setATR1H(this.value)">`;
-      const atrSet = state.atr_1h && state.atr_1h > 0;
-      html += `<span style="font-size:10px;color:${atrSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">`;
-      html += atrSet ? `✓ active` : `· empty`;
+      html += `<span class="lbl"><span class="tip">Horizon ⓘ<span class="tip-box">${horizonTooltip}</span></span></span>`;
+      const horizonBorder = horizonCurrent ? "var(--border,#ddd)" : "var(--yellow, #ca8a04)";
+      html += `<select id="sel_trade_horizon" onchange="setTradeHorizon(this.value)" style="font-size:11px;padding:3px 6px;border:1px solid ${horizonBorder};border-radius:4px;background:var(--bg,#fff);font-family:'JetBrains Mono',monospace">`;
+      html += `<option value="" ${horizonCurrent===""?"selected":""}>(pick horizon)</option>`;
+      html += `<option value="Intraday" ${horizonCurrent==="Intraday"?"selected":""}>Intraday</option>`;
+      html += `<option value="Swing" ${horizonCurrent==="Swing"?"selected":""}>Swing</option>`;
+      html += `</select>`;
+      if (!horizonCurrent) {
+        html += `<span style="font-size:10px;color:var(--yellow,#ca8a04);font-weight:600">⏸ pick</span>`;
+      } else {
+        html += `<span style="font-size:10px;color:var(--green);font-weight:600">✓ ${horizonCurrent}</span>`;
+      }
+      html += `</div>`;
+      // ATR(14) @ 1H input — active if Horizon=Intraday
+      const atr1hActive = horizonCurrent === "Intraday";
+      const atr1hSet = state.atr_1h && state.atr_1h > 0;
+      const atr1hOpacity = atr1hActive ? "1.0" : "0.55";
+      html += `<div style="display:flex;align-items:center;gap:8px;opacity:${atr1hOpacity}">`;
+      html += `<span class="lbl"><span class="tip">ATR(14) @ 1H ⓘ<span class="tip-box">${atrTooltip1H}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
+      html += `<input type="text" inputmode="decimal" id="inp_atr_1h" class="mini-input" style="width:90px" placeholder="e.g. 0.5" value="${atrCurrent1H}" onchange="setATR1H(this.value)" onblur="setATR1H(this.value)">`;
+      html += `<span style="font-size:10px;color:${atr1hSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">`;
+      html += atr1hSet ? `✓` : `·`;
+      html += `</span>`;
+      html += `</div>`;
+      // ATR(14) @ 1D input — active if Horizon=Swing
+      const atrDActive = horizonCurrent === "Swing";
+      const atrDSet = state.atr_d && state.atr_d > 0;
+      const atrDOpacity = atrDActive ? "1.0" : "0.55";
+      html += `<div style="display:flex;align-items:center;gap:8px;opacity:${atrDOpacity}">`;
+      html += `<span class="lbl"><span class="tip">ATR(14) @ 1D ⓘ<span class="tip-box">${atrTooltipD}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
+      html += `<input type="text" inputmode="decimal" id="inp_atr_d" class="mini-input" style="width:90px" placeholder="e.g. 2.69" value="${atrCurrentD}" onchange="setATRD(this.value)" onblur="setATRD(this.value)">`;
+      html += `<span style="font-size:10px;color:${atrDSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">`;
+      html += atrDSet ? `✓` : `·`;
       html += `</span>`;
       html += `</div>`;
       // Wait Mode override dropdown
@@ -1664,13 +1745,15 @@ function pickMulti(id, val) {
  
 function pickTop(id, val) {
   state[id] = state[id] === val ? undefined : val;
-  // ATR(1H) per-asset auto-fill — when asset changes, load saved ATR for new asset
+  // ATR per-asset auto-fill — when asset changes, load saved ATRs for new asset (H8.1: both 1H + D)
   if (id === "asset") {
     if (state.asset) {
       loadATRForAsset(state.asset);
+    } else {
+      // If asset deselected — clear ATR display (но не удалять persisted values)
+      state.atr_1h = undefined;
+      state.atr_d = undefined;
     }
-    // If asset deselected — clear ATR display (но не удалять persisted values)
-    if (!state.asset) state.atr_1h = undefined;
   }
   localStorage.setItem('tc_state', JSON.stringify(state));
   // Update top pills styling
@@ -1701,6 +1784,34 @@ function setATR1H(value) {
   // Persist per asset
   saveATRForAsset(state.asset, state.atr_1h);
   // Persist state for general restore
+  localStorage.setItem('tc_state', JSON.stringify(state));
+  render();
+}
+ 
+// H8.1 (2026-04-28): ATR(D) input handler — parallel to setATR1H, saves per-asset
+function setATRD(value) {
+  if (value === "" || value === null || value === undefined) {
+    state.atr_d = undefined;
+  } else {
+    const normalized = String(value).replace(',', '.').trim();
+    if (normalized === "" || normalized === "." || normalized === "-") {
+      return;
+    }
+    const parsed = parseFloat(normalized);
+    state.atr_d = isNaN(parsed) ? undefined : parsed;
+  }
+  saveATRDForAsset(state.asset, state.atr_d);
+  localStorage.setItem('tc_state', JSON.stringify(state));
+  render();
+}
+ 
+// H8.1 (2026-04-28): Trade Horizon dropdown handler — sets horizon, persists, re-renders
+function setTradeHorizon(value) {
+  if (value === "" || value === null || value === undefined) {
+    state.trade_horizon = undefined;
+  } else if (value === "Intraday" || value === "Swing") {
+    state.trade_horizon = value;
+  }
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();
 }
@@ -1890,11 +2001,18 @@ async function skipToNotion() {
   const {label: convSave, triggers: trigSave} = computeConviction();
   if (convSave) props["Conviction"] = convSave + " (-" + trigSave + ")";
   const modeSave = computeMode(); if (modeSave) props["Trade Mode"] = modeSave;
+  // H8.1 (2026-04-28): Trade Horizon + ATR(14) @ 1H/1D as dedicated Notion fields (skip path)
+  if (state.trade_horizon) props["Trade Horizon"] = state.trade_horizon;
+  if (state.atr_1h && state.atr_1h > 0) props["ATR(14) @ 1H"] = state.atr_1h;
+  if (state.atr_d  && state.atr_d  > 0) props["ATR(14) @ 1D"] = state.atr_d;
   let notes = document.getElementById("notes").value;
   // H1.25/H1.24 (2026-04-27): auto-append Wait Mode metadata if set (skip path)
+  // H8.1 (2026-04-28): also append Trade Horizon + both ATR values
   const metaLinesSkip = [];
+  if (state.trade_horizon) metaLinesSkip.push("Trade Horizon: " + state.trade_horizon);
   if (state.wait_sub_type) metaLinesSkip.push("Wait Sub-type: " + state.wait_sub_type);
-  if (state.atr_1h && state.atr_1h > 0) metaLinesSkip.push("ATR(1H): " + state.atr_1h);
+  if (state.atr_1h && state.atr_1h > 0) metaLinesSkip.push("ATR(14) @ 1H: " + state.atr_1h);
+  if (state.atr_d  && state.atr_d  > 0) metaLinesSkip.push("ATR(14) @ 1D: " + state.atr_d);
   if (metaLinesSkip.length) {
     notes = (notes ? notes + "\n\n" : "") + metaLinesSkip.join("\n");
   }
@@ -1978,6 +2096,10 @@ async function saveToNotion() {
   if (Array.isArray(state.draw_level_below) && state.draw_level_below.length) props["Liq. Below"] = state.draw_level_below;
   const modeSave = computeMode();
   if (modeSave) props["Trade Mode"] = modeSave;
+  // H8.1 (2026-04-28): Trade Horizon + ATR(14) @ 1H/1D as dedicated Notion fields
+  if (state.trade_horizon) props["Trade Horizon"] = state.trade_horizon;
+  if (state.atr_1h && state.atr_1h > 0) props["ATR(14) @ 1H"] = state.atr_1h;
+  if (state.atr_d  && state.atr_d  > 0) props["ATR(14) @ 1D"] = state.atr_d;
  
   // Numbers
   const numMap = {account:"Account $", risk:"Risk %", entry:"Entry Price", stop:"Stop Price", tp1:"TP1", tp2:"TP2", tp3:"TP3"};
@@ -1991,13 +2113,19 @@ async function saveToNotion() {
   // Notes & Screenshot
   let notes = document.getElementById("notes").value;
   // H1.25/H1.24 (2026-04-27): auto-append Wait Mode metadata if set
-  // ATR(1H) value also appended for journal completeness
+  // H8.1 (2026-04-28): also append Trade Horizon + both ATR values for journal completeness
   const metaLines = [];
+  if (state.trade_horizon) {
+    metaLines.push("Trade Horizon: " + state.trade_horizon);
+  }
   if (state.wait_sub_type) {
     metaLines.push("Wait Sub-type: " + state.wait_sub_type);
   }
   if (state.atr_1h && state.atr_1h > 0) {
-    metaLines.push("ATR(1H): " + state.atr_1h);
+    metaLines.push("ATR(14) @ 1H: " + state.atr_1h);
+  }
+  if (state.atr_d && state.atr_d > 0) {
+    metaLines.push("ATR(14) @ 1D: " + state.atr_d);
   }
   if (metaLines.length) {
     notes = (notes ? notes + "\n\n" : "") + metaLines.join("\n");

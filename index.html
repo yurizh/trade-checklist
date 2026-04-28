@@ -1312,7 +1312,7 @@ function render() {
       // ATR(1H) input
       html += `<div style="display:flex;align-items:center;gap:8px">`;
       html += `<span class="lbl"><span class="tip">ATR(1H) ⓘ<span class="tip-box">${atrTooltip}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
-      html += `<input type="number" step="any" id="inp_atr_1h" class="mini-input" style="width:100px" placeholder="e.g. 0.5" value="${atrCurrent}" oninput="setATR1H(this.value)">`;
+      html += `<input type="text" inputmode="decimal" id="inp_atr_1h" class="mini-input" style="width:100px" placeholder="e.g. 0.5" value="${atrCurrent}" onchange="setATR1H(this.value)" onblur="setATR1H(this.value)">`;
       const atrSet = state.atr_1h && state.atr_1h > 0;
       html += `<span style="font-size:10px;color:${atrSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">`;
       html += atrSet ? `✓ active` : `· empty`;
@@ -1688,7 +1688,14 @@ function setATR1H(value) {
   if (value === "" || value === null || value === undefined) {
     state.atr_1h = undefined;
   } else {
-    const parsed = parseFloat(value);
+    // Normalize: replace comma with dot (locale-safe), trim whitespace
+    const normalized = String(value).replace(',', '.').trim();
+    // Allow partial input like "0." or "." during typing — don't clobber state
+    if (normalized === "" || normalized === "." || normalized === "-") {
+      // Partial input — keep current state, just don't update yet
+      return;
+    }
+    const parsed = parseFloat(normalized);
     state.atr_1h = isNaN(parsed) ? undefined : parsed;
   }
   // Persist per asset

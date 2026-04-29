@@ -75,6 +75,10 @@
   .mini-input.w48 { width: 56px; }
   .mini-input.flex { flex: 1; width: auto; }
  
+  .tc-select { font-size: 11px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--input-bg); color: var(--fg); font-family: 'JetBrains Mono', monospace; }
+  .tc-select:focus { outline: none; border-color: var(--muted); }
+  .tc-select option { background: var(--input-bg); color: var(--fg); }
+ 
   .footer { border-top: 1px solid var(--border); padding-top: 6px; margin-top: 4px; }
   .footer-row { display: flex; gap: 8px; align-items: center; }
   .post-btn { font-size: 11px; color: var(--muted); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; cursor: pointer; font-family: inherit; }
@@ -2089,7 +2093,7 @@ function render() {
       html += `<div style="display:flex;align-items:center;gap:8px">`;
       html += `<span class="lbl"><span class="tip">Horizon ⓘ<span class="tip-box">${horizonTooltip}</span></span></span>`;
       const horizonBorder = horizonCurrent ? "var(--border,#ddd)" : "var(--yellow, #ca8a04)";
-      html += `<select id="sel_trade_horizon" onchange="setTradeHorizon(this.value)" style="font-size:11px;padding:3px 6px;border:1px solid ${horizonBorder};border-radius:4px;background:var(--bg,#fff);font-family:'JetBrains Mono',monospace">`;
+      html += `<select id="sel_trade_horizon" onchange="setTradeHorizon(this.value)" class="tc-select" style="border-color:${horizonBorder}">`;
       html += `<option value="" ${horizonCurrent===""?"selected":""}>(pick horizon)</option>`;
       html += `<option value="Intraday" ${horizonCurrent==="Intraday"?"selected":""}>Intraday</option>`;
       html += `<option value="Swing" ${horizonCurrent==="Swing"?"selected":""}>Swing</option>`;
@@ -2144,7 +2148,7 @@ function render() {
       // Wait Mode override dropdown — same row as Horizon (UX 2026-04-29)
       html += `<div style="display:flex;align-items:center;gap:8px">`;
       html += `<span class="lbl"><span class="tip">Wait ⓘ<span class="tip-box">${waitTooltip}</span></span></span>`;
-      html += `<select id="sel_wait_sub_type" onchange="setWaitSubType(this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--border,#ddd);border-radius:4px;background:var(--bg,#fff);font-family:'JetBrains Mono',monospace">`;
+      html += `<select id="sel_wait_sub_type" onchange="setWaitSubType(this.value)" class="tc-select">`;
       html += `<option value="" ${waitCurrent===""?"selected":""}>(auto)</option>`;
       html += `<option value="post_sweep_digestion" ${waitCurrent==="post_sweep_digestion"?"selected":""}>post-sweep digestion</option>`;
       html += `<option value="target_premature" ${waitCurrent==="target_premature"?"selected":""}>target premature</option>`;
@@ -2676,11 +2680,13 @@ function renderRR() {
 // ============================================
 // FILL TIMER (2026-04-29)
 // Tracks fill duration per setup. Starts on RESET, stops on TRADE or SKIP.
+// After stop: display freezes showing last fill duration (visibility of prev result).
+// New RESET clears frozen value и starts fresh timer.
 // Records elapsed seconds в Notes metaLines + sessionStorage persistence.
-// Goal: measurable metric для tracking automaticity formation through milestones.
 // ============================================
 let timerStartTime = null;
 let timerInterval = null;
+let lastFillDuration = null;  // Frozen display value after stop (null = nothing to show)
  
 function formatDuration(seconds) {
   if (seconds < 0 || isNaN(seconds)) return "0:00";
@@ -2698,15 +2704,26 @@ function updateTimerDisplay() {
   const el = document.getElementById('fillTimer');
   if (!el) return;
   if (timerStartTime) {
+    // Live counter — running
     el.textContent = `⏱ ${formatDuration(getElapsedSeconds())}`;
+    el.style.color = 'var(--muted)';
+    el.style.display = 'inline';
+  } else if (lastFillDuration !== null) {
+    // Frozen display — last fill duration (после save/skip)
+    el.textContent = `⏱ ${formatDuration(lastFillDuration)} ✓`;
+    el.style.color = 'var(--green-text)';
     el.style.display = 'inline';
   } else {
+    // Nothing to show
     el.style.display = 'none';
     el.textContent = '';
   }
 }
  
 function startTimer() {
+  // Clear frozen display when starting new fill
+  lastFillDuration = null;
+  localStorage.removeItem('tc_timer_last');
   timerStartTime = Date.now();
   localStorage.setItem('tc_timer_start', String(timerStartTime));
   if (timerInterval) clearInterval(timerInterval);
@@ -2714,7 +2731,8 @@ function startTimer() {
   updateTimerDisplay();
 }
  
-// Stops timer и returns elapsed seconds (0 если не был запущен)
+// Stops timer и returns elapsed seconds (0 если не был запущен).
+// Display freezes showing the elapsed value до next RESET.
 function stopTimer() {
   const elapsed = getElapsedSeconds();
   if (timerInterval) {
@@ -2723,19 +2741,33 @@ function stopTimer() {
   }
   timerStartTime = null;
   localStorage.removeItem('tc_timer_start');
+  if (elapsed > 0) {
+    lastFillDuration = elapsed;
+    localStorage.setItem('tc_timer_last', String(elapsed));
+  }
   updateTimerDisplay();
   return elapsed;
 }
  
-// Restore timer state on page reload (continues counting если был активен)
+// Restore timer state on page reload (continues counting если был активен,
+// или показывает frozen last fill если был только-что closed).
 function restoreTimer() {
   const stored = localStorage.getItem('tc_timer_start');
+  const lastStored = localStorage.getItem('tc_timer_last');
   if (stored) {
     const parsed = parseInt(stored, 10);
     if (!isNaN(parsed) && parsed > 0) {
       timerStartTime = parsed;
       if (timerInterval) clearInterval(timerInterval);
       timerInterval = setInterval(updateTimerDisplay, 1000);
+      updateTimerDisplay();
+      return;
+    }
+  }
+  if (lastStored) {
+    const parsedLast = parseInt(lastStored, 10);
+    if (!isNaN(parsedLast) && parsedLast > 0) {
+      lastFillDuration = parsedLast;
       updateTimerDisplay();
     }
   }

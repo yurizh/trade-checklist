@@ -1,3 +1,6 @@
+Index · HTML
+Copy
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -85,7 +88,18 @@
 <body>
  
 <div class="header">
-  <div class="header-title">TRADE CHECKLIST</div>
+  <div class="header-title" style="display:flex;align-items:center;gap:14px;font-size:13px;letter-spacing:0.04em;font-weight:700;flex-wrap:wrap">
+    <span style="display:inline-flex;align-items:center;gap:4px"><span class="lbl" style="font-size:11px;font-weight:600">Asset</span>
+      <button class="pill" onclick="pickTop('asset','BTC')" id="pill_asset_BTC">BTC</button>
+      <button class="pill" onclick="pickTop('asset','ETH')" id="pill_asset_ETH">ETH</button>
+      <button class="pill" onclick="pickTop('asset','SOL')" id="pill_asset_SOL">SOL</button>
+      <input type="text" id="asset_custom" placeholder="Other" oninput="setCustomAsset(this.value)" onblur="setCustomAsset(this.value)" style="width:62px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:3px;font-family:'JetBrains Mono',monospace;text-transform:uppercase">
+    </span>
+    <span style="display:inline-flex;align-items:center;gap:4px"><span class="lbl" style="font-size:11px;font-weight:600">Mode</span>
+      <button class="pill" onclick="pickTop('mode','Live')" id="pill_mode_Live">Live</button>
+      <button class="pill" onclick="pickTop('mode','Backtest')" id="pill_mode_Backtest">Backtest</button>
+    </span>
+  </div>
   <div class="header-right">
     <span id="verdict"></span>
     <button class="btn-reset" onclick="saveToNotion()" id="saveBtn" style="color:var(--green);border-color:var(--green)">💾 TRADE</button>
@@ -114,19 +128,6 @@
   </div>
 </div>
 <div id="saveStatus" style="display:none;font-size:12px;padding:4px 0;margin-bottom:4px;"></div>
-<div class="flow">
-  <span style="margin-right:12px"><span class="lbl">Asset</span>
-    <button class="pill" onclick="pickTop('asset','BTC')" id="pill_asset_BTC">BTC</button>
-    <button class="pill" onclick="pickTop('asset','ETH')" id="pill_asset_ETH">ETH</button>
-    <button class="pill" onclick="pickTop('asset','SOL')" id="pill_asset_SOL">SOL</button>
-    <button class="pill" onclick="pickTop('asset','PEPE')" id="pill_asset_PEPE">PEPE</button>
-  </span>
-  <span><span class="lbl">Mode</span>
-    <button class="pill" onclick="pickTop('mode','Live')" id="pill_mode_Live">Live</button>
-    <button class="pill" onclick="pickTop('mode','Backtest')" id="pill_mode_Backtest">Backtest</button>
-  </span>
-</div>
-<div class="flow">HTF Context → Market State → OI → Funding → Entry → Trade&Risk │ Any ⛔ = NO TRADE</div>
  
 <div id="checklist"></div>
  
@@ -144,6 +145,19 @@ Exit: no disp 3-5 candles→exit 50-100% | no confirm 30-60m→invalidate | 2 st
  
 <script>
 const STOP = new Set(["S.Squeeze⛔","Flat⛔","Diverge⛔","Extreme⛔","No Trade⛔","Fail⛔","Conflict⛔","No Resolution 60-90m⛔","Spike⛔","Too Close⛔","Too Far⛔"]);
+ 
+// OPT_LABELS (UX 2026-04-29) — display labels for select options.
+// VALUES в state remain unchanged (logic depends on them); only button text shortened.
+// "Bullish"/"Bearish"/"Balanced" → "Bull"/"Bear"/"Balance"; "Trend " prefix removed from Regime.
+const OPT_LABELS = {
+  "Bullish": "Bull",
+  "Bearish": "Bear",
+  "Balanced": "Balance",
+  "Trend 3/3 Bull": "3/3 Bull",
+  "Trend 3/3 Bear": "3/3 Bear",
+  "Trend 3/3": "3/3"
+};
+function optLabel(o) { return OPT_LABELS[o] || o; }
  
 const GROUPS = [
   { key:"htf", title:"1. HTF CONTEXT", color:"#3b82f6",
@@ -1693,7 +1707,11 @@ function renderVerboseHTF() {
 // H1.19 — Notes textarea auto-grow as content increases
 function autoGrowNotes(el) {
   el.style.height = "auto";
-  el.style.height = Math.min(el.scrollHeight, 300) + "px";
+  // UX 2026-04-29: keep minimum 1 line height (24px), grow up to 300px on content
+  const target = Math.max(24, Math.min(el.scrollHeight, 300));
+  el.style.height = target + "px";
+  // Show scrollbar only when content exceeds max
+  el.style.overflowY = el.scrollHeight > 300 ? "auto" : "hidden";
 }
  
 // H1.19 — TP1/TP2 template: auto-fill Notes with current Liq./Barrier selection + verdict + blank template
@@ -1834,7 +1852,7 @@ function render() {
           const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
           const disabledAttr = disabled ? " disabled" : "";
           const clickFn = f.multi ? "pickMulti" : "pick";
-          out += `<button class="${cls}"${disabledAttr} onclick="${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')">${o}</button>`;
+          out += `<button class="${cls}"${disabledAttr} onclick="${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')">${optLabel(o)}</button>`;
         }
         out += `</div></div>`;
         return out;
@@ -1852,70 +1870,22 @@ function render() {
       html += renderField(fmap.regime, 0);
       html += renderField(fmap.swept, 0);
       html += `</div>`;
-      // Row 2.5: Trade Horizon + ATR(14) @ 1H + ATR(14) @ 1D + Wait Mode Override (H8.1 — horizon-aware)
-      const horizonTooltip = "<strong>Trade Horizon (H8.1) — REQUIRED</strong>\nDeclares intended trade timeframe. Determines which ATR field used for distance check.\n\n<strong>Intraday:</strong> hours — same session entry/exit. Distance check uses <strong>ATR(14) @ 1H</strong>.\n• target premature if distance > <strong>4× ATR(1H)</strong>\n• barrier active if distance ≤ <strong>2× ATR(1H)</strong>\n• post-sweep digestion if distance > <strong>2× ATR(1H)</strong>\n\n<strong>Swing:</strong> 2-7 days — multi-session hold. Distance check uses <strong>ATR(14) @ 1D</strong>.\n• target premature if distance > <strong>2.5× ATR(D)</strong>\n• barrier active if distance ≤ <strong>1× ATR(D)</strong>\n• post-sweep digestion if distance > <strong>1× ATR(D)</strong>\n\n<strong>Why required:</strong> trade horizon = your time availability today, not pure technical decision. Forces conscious commit before analysis.\n\n<strong>Не set:</strong> distance check disabled — system shows ⏸ pending state.";
-      const atrTooltip1H = "<strong>ATR(14) @ 1H — for Intraday horizon</strong>\nValue of ATR(14) RMA on 1H timeframe. Read from Displacement Scanner table → HTF CONTEXT section → 'ATR 1H' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 hour\n\n<strong>Used in distance checks (Intraday horizon only):</strong>\n• <strong>O7.2:</strong> Barrier active if distance ≤ 2× ATR(1H)\n• <strong>H1.22:</strong> Target premature if distance > 4× ATR(1H)\n• <strong>H1.25:</strong> Post-sweep digestion if distance from swept extreme > 2× ATR(1H)\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
-      const atrTooltipD = "<strong>ATR(14) @ 1D — for Swing horizon</strong>\nValue of ATR(14) RMA on Daily timeframe. Read from Displacement Scanner table → HTF CONTEXT section → 'ATR D' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 day\n\n<strong>Used in distance checks (Swing horizon only):</strong>\n• Barrier active if distance ≤ 1× ATR(D)\n• Target premature if distance > 2.5× ATR(D)\n• Post-sweep digestion if distance from swept extreme > 1× ATR(D)\n\n<em>Multipliers (2.5× / 1×) are starting calibration — validate after 10-20 swing setups.</em>\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
-      const waitTooltip = "<strong>Wait Mode override (H1.25 / H1.24 / O7.18)</strong>\nManual flag: setup структурно valid но resolution pending. Используй когда auto Mode не отражает реальность.\n\n<strong>Sub-types (H8.1: thresholds horizon-aware):</strong>\n• <strong>post-sweep digestion:</strong> sweep happened, цена сделала significant retreat от swept extreme (Intraday: > 2× ATR(1H); Swing: > 1× ATR(D)), waiting for re-test или decisive close\n• <strong>target premature:</strong> structurally valid setup но target слишком далеко (Intraday: > 4× ATR(1H); Swing: > 2.5× ATR(D)), watch for entry zone closer\n• <strong>htf pending (await LTF trigger) — O7.18 (2026-04-29):</strong> HTF context structurally valid (bias + targets + barriers OK), waiting for LTF trigger в Section 5 (BOS / Displacement / Sweep+retest) для commit к entry. Generic catch-all для \"setup готов, но input cue не пришёл yet\". Examples: multi-timeframe kinetic disagreement, news pending, structural break awaiting confirmation.\n\n<strong>Effect:</strong> Mode = Wait, conviction рассчитывается normally, journal records sub-type для analysis. Не блокирует setup — это discipline marker.\n\n<strong>O7.20 (2026-04-29):</strong> Wait Mode НЕ bypass'ит \"Too Many Risks\" blocker. При 3+ triggers status line дополнительно показывает <code>⛔Risks</code> badge — setup structurally blocked несмотря на Wait flag. Используй Wait для tracking discipline, не как override structural issues.\n\n<strong>(auto)</strong> = no override, system computes Mode normally.";
-      const atrCurrent1H = (state.atr_1h !== undefined && state.atr_1h !== null) ? state.atr_1h : "";
-      const atrCurrentD = (state.atr_d !== undefined && state.atr_d !== null) ? state.atr_d : "";
-      const atrCurrentAsset = state.asset || "";
-      const waitCurrent = state.wait_sub_type || "";
-      const horizonCurrent = state.trade_horizon || "";
-      html += `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:6px">`;
-      // Trade Horizon dropdown — REQUIRED (H8.1)
-      html += `<div style="display:flex;align-items:center;gap:8px">`;
-      html += `<span class="lbl"><span class="tip">Horizon ⓘ<span class="tip-box">${horizonTooltip}</span></span></span>`;
-      const horizonBorder = horizonCurrent ? "var(--border,#ddd)" : "var(--yellow, #ca8a04)";
-      html += `<select id="sel_trade_horizon" onchange="setTradeHorizon(this.value)" style="font-size:11px;padding:3px 6px;border:1px solid ${horizonBorder};border-radius:4px;background:var(--bg,#fff);font-family:'JetBrains Mono',monospace">`;
-      html += `<option value="" ${horizonCurrent===""?"selected":""}>(pick horizon)</option>`;
-      html += `<option value="Intraday" ${horizonCurrent==="Intraday"?"selected":""}>Intraday</option>`;
-      html += `<option value="Swing" ${horizonCurrent==="Swing"?"selected":""}>Swing</option>`;
-      html += `</select>`;
-      if (!horizonCurrent) {
-        html += `<span style="font-size:10px;color:var(--yellow,#ca8a04);font-weight:600">⏸ pick</span>`;
-      } else {
-        html += `<span style="font-size:10px;color:var(--green);font-weight:600">✓ ${horizonCurrent}</span>`;
-      }
-      html += `</div>`;
-      // ATR(14) @ 1H input — active if Horizon=Intraday
-      const atr1hActive = horizonCurrent === "Intraday";
-      const atr1hSet = state.atr_1h && state.atr_1h > 0;
-      const atr1hOpacity = atr1hActive ? "1.0" : "0.55";
-      html += `<div style="display:flex;align-items:center;gap:8px;opacity:${atr1hOpacity}">`;
-      html += `<span class="lbl"><span class="tip">ATR(14) @ 1H ⓘ<span class="tip-box">${atrTooltip1H}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
-      html += `<input type="text" inputmode="decimal" id="inp_atr_1h" class="mini-input" style="width:90px" placeholder="e.g. 0.5" value="${atrCurrent1H}" onchange="setATR1H(this.value)" onblur="setATR1H(this.value)">`;
-      html += `<span style="font-size:10px;color:${atr1hSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">`;
-      html += atr1hSet ? `✓` : `·`;
-      html += `</span>`;
-      html += `</div>`;
-      // ATR(14) @ 1D input — active if Horizon=Swing
-      const atrDActive = horizonCurrent === "Swing";
-      const atrDSet = state.atr_d && state.atr_d > 0;
-      const atrDOpacity = atrDActive ? "1.0" : "0.55";
-      html += `<div style="display:flex;align-items:center;gap:8px;opacity:${atrDOpacity}">`;
-      html += `<span class="lbl"><span class="tip">ATR(14) @ 1D ⓘ<span class="tip-box">${atrTooltipD}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
-      html += `<input type="text" inputmode="decimal" id="inp_atr_d" class="mini-input" style="width:90px" placeholder="e.g. 2.69" value="${atrCurrentD}" onchange="setATRD(this.value)" onblur="setATRD(this.value)">`;
-      html += `<span style="font-size:10px;color:${atrDSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">`;
-      html += atrDSet ? `✓` : `·`;
-      html += `</span>`;
-      html += `</div>`;
-      // Wait Mode override dropdown
-      html += `<div style="display:flex;align-items:center;gap:8px">`;
-      html += `<span class="lbl"><span class="tip">Wait Mode ⓘ<span class="tip-box">${waitTooltip}</span></span></span>`;
-      html += `<select id="sel_wait_sub_type" onchange="setWaitSubType(this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--border,#ddd);border-radius:4px;background:var(--bg,#fff);font-family:'JetBrains Mono',monospace">`;
-      html += `<option value="" ${waitCurrent===""?"selected":""}>(auto)</option>`;
-      html += `<option value="post_sweep_digestion" ${waitCurrent==="post_sweep_digestion"?"selected":""}>post-sweep digestion</option>`;
-      html += `<option value="target_premature" ${waitCurrent==="target_premature"?"selected":""}>target premature</option>`;
-      html += `<option value="htf_pending" ${waitCurrent==="htf_pending"?"selected":""}>htf pending (await LTF trigger)</option>`;
-      html += `</select>`;
-      if (waitCurrent) {
-        html += `<span style="font-size:10px;color:var(--yellow,#ca8a04);font-weight:600">⚠ Wait</span>`;
-      }
-      html += `</div>`;
-      html += `</div>`;
       // Row 3: Near HTF Extreme (full width, under phase cluster)
-      html += `<div style="margin-bottom:6px">` + renderField(fmap.extreme, 0) + `</div>`;
+      // H9.1 (UX 2026-04-29): Extreme price input inline with extreme buttons row when selected.
+      const extremeSelectedRow3 = Array.isArray(state.extreme) ? state.extreme.length > 0 : !!state.extreme;
+      html += `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">`;
+      html += `<div style="flex:1;min-width:0">` + renderField(fmap.extreme, 0) + `</div>`;
+      if (extremeSelectedRow3) {
+        const extremePriceVal = (state.price_near_extreme !== undefined && state.price_near_extreme !== null) ? state.price_near_extreme : "";
+        const extremePriceSet = state.price_near_extreme !== undefined && state.price_near_extreme !== null && state.price_near_extreme > 0;
+        const extremePriceTooltipShort = "<strong>Near Extreme Price (H9.1)</strong>\nPrice level swept extreme (PWH, PMH, etc.) — для post-sweep digestion check.\n\n<strong>Distance check:</strong>\nWhen Recently Swept set + distance from extreme > horizon's digestion threshold (Intraday: 2× ATR(1H); Swing: 1× ATR(D)) → auto-suggest Wait Mode = post_sweep_digestion.\n\nLeave empty if extreme distance не actionable.";
+        html += `<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">`;
+        html += `<span style="font-size:10px;color:var(--muted)"><span class="tip">Extreme Price ⓘ<span class="tip-box">${extremePriceTooltipShort}</span></span></span>`;
+        html += `<input type="text" inputmode="decimal" id="inp_price_near_extreme" class="mini-input" style="width:80px" placeholder="e.g. 79428" value="${extremePriceVal}" onchange="setPrice('near_extreme', this.value)" onblur="setPrice('near_extreme', this.value)">`;
+        html += `<span style="font-size:10px;color:${extremePriceSet ? 'var(--green)' : 'var(--muted)'}">${extremePriceSet ? '✓' : '·'}</span>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
       // Row 4: Liq Above / Liq Below — 3-col pill grids side-by-side
       html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:6px">`;
       html += renderField(fmap.draw_level_above, 3);
@@ -1997,7 +1967,7 @@ function render() {
         const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
         const disabledAttr = isDisabled ? " disabled" : "";
         const clickFn = f.multi ? "pickMulti" : "pick";
-        html += `<button class="${cls}"${disabledAttr} onclick="${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')">${o}</button>`;
+        html += `<button class="${cls}"${disabledAttr} onclick="${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')">${optLabel(o)}</button>`;
       }
       // Computed display for Liq. and Barrier fields
       if ((f.id === "draw_level_above" || f.id === "draw_level_below")) {
@@ -2035,6 +2005,92 @@ function render() {
     // H9.1 (2026-04-29): Setup Geometry — 6 conditional price fields, render before Notes
     // H8.2 (2026-04-29): TP2 inputs added — visible when ≥2 targets selected on side
     // H8.3 (2026-04-29): B2 inputs added — visible when ≥2 barriers selected on side
+    // UX (2026-04-29): Horizon row moved here (above Geometry) — they work together for distance math
+    if (g.key === "htf") {
+      // ─────────────────────────────────────────────────────────────────────
+      // Horizon + ATR + Wait Mode row (was Row 2.5, moved here for proximity to Geometry)
+      // ─────────────────────────────────────────────────────────────────────
+      const horizonTooltip = "<strong>Trade Horizon (H8.1) — REQUIRED</strong>\nDeclares intended trade timeframe. Determines which ATR field used for distance check.\n\n<strong>Intraday:</strong> hours — same session entry/exit. Distance check uses <strong>ATR(14) @ 1H</strong>.\n• target premature if distance > <strong>4× ATR(1H)</strong>\n• barrier active if distance ≤ <strong>2× ATR(1H)</strong>\n• post-sweep digestion if distance > <strong>2× ATR(1H)</strong>\n\n<strong>Swing:</strong> 2-7 days — multi-session hold. Distance check uses <strong>ATR(14) @ 1D</strong>.\n• target premature if distance > <strong>2.5× ATR(D)</strong>\n• barrier active if distance ≤ <strong>1× ATR(D)</strong>\n• post-sweep digestion if distance > <strong>1× ATR(D)</strong>\n\n<strong>Why required:</strong> trade horizon = your time availability today, not pure technical decision. Forces conscious commit before analysis.\n\n<strong>Не set:</strong> distance check disabled — system shows ⏸ pending state.";
+      const atrTooltip1H = "<strong>ATR(14) @ 1H — for Intraday horizon</strong>\nValue of ATR(14) RMA on 1H timeframe. Read from Displacement Scanner table → HTF CONTEXT section → 'ATR 1H' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 hour\n\n<strong>Used in distance checks (Intraday horizon only):</strong>\n• <strong>O7.2:</strong> Barrier active if distance ≤ 2× ATR(1H)\n• <strong>H1.22:</strong> Target premature if distance > 4× ATR(1H)\n• <strong>H1.25:</strong> Post-sweep digestion if distance from swept extreme > 2× ATR(1H)\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
+      const atrTooltipD = "<strong>ATR(14) @ 1D — for Swing horizon</strong>\nValue of ATR(14) RMA on Daily timeframe. Read from Displacement Scanner table → HTF CONTEXT section → 'ATR D' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 day\n\n<strong>Used in distance checks (Swing horizon only):</strong>\n• Barrier active if distance ≤ 1× ATR(D)\n• Target premature if distance > 2.5× ATR(D)\n• Post-sweep digestion if distance from swept extreme > 1× ATR(D)\n\n<em>Multipliers (2.5× / 1×) are starting calibration — validate after 10-20 swing setups.</em>\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
+      const waitTooltip = "<strong>Wait Mode override (H1.25 / H1.24 / O7.18)</strong>\nManual flag: setup структурно valid но resolution pending. Используй когда auto Mode не отражает реальность.\n\n<strong>Sub-types (H8.1: thresholds horizon-aware):</strong>\n• <strong>post-sweep digestion:</strong> sweep happened, цена сделала significant retreat от swept extreme (Intraday: > 2× ATR(1H); Swing: > 1× ATR(D)), waiting for re-test или decisive close\n• <strong>target premature:</strong> structurally valid setup но target слишком далеко (Intraday: > 4× ATR(1H); Swing: > 2.5× ATR(D)), watch for entry zone closer\n• <strong>htf pending (await LTF trigger) — O7.18 (2026-04-29):</strong> HTF context structurally valid (bias + targets + barriers OK), waiting for LTF trigger в Section 5 (BOS / Displacement / Sweep+retest) для commit к entry. Generic catch-all для \"setup готов, но input cue не пришёл yet\". Examples: multi-timeframe kinetic disagreement, news pending, structural break awaiting confirmation.\n\n<strong>Effect:</strong> Mode = Wait, conviction рассчитывается normally, journal records sub-type для analysis. Не блокирует setup — это discipline marker.\n\n<strong>O7.20 (2026-04-29):</strong> Wait Mode НЕ bypass'ит \"Too Many Risks\" blocker. При 3+ triggers status line дополнительно показывает <code>⛔Risks</code> badge — setup structurally blocked несмотря на Wait flag. Используй Wait для tracking discipline, не как override structural issues.\n\n<strong>(auto)</strong> = no override, system computes Mode normally.";
+      const atrCurrent1H = (state.atr_1h !== undefined && state.atr_1h !== null) ? state.atr_1h : "";
+      const atrCurrentD = (state.atr_d !== undefined && state.atr_d !== null) ? state.atr_d : "";
+      const atrCurrentAsset = state.asset || "";
+      const waitCurrent = state.wait_sub_type || "";
+      const horizonCurrent = state.trade_horizon || "";
+      html += `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">`;
+      // Trade Horizon dropdown — REQUIRED (H8.1)
+      html += `<div style="display:flex;align-items:center;gap:8px">`;
+      html += `<span class="lbl"><span class="tip">Horizon ⓘ<span class="tip-box">${horizonTooltip}</span></span></span>`;
+      const horizonBorder = horizonCurrent ? "var(--border,#ddd)" : "var(--yellow, #ca8a04)";
+      html += `<select id="sel_trade_horizon" onchange="setTradeHorizon(this.value)" style="font-size:11px;padding:3px 6px;border:1px solid ${horizonBorder};border-radius:4px;background:var(--bg,#fff);font-family:'JetBrains Mono',monospace">`;
+      html += `<option value="" ${horizonCurrent===""?"selected":""}>(pick horizon)</option>`;
+      html += `<option value="Intraday" ${horizonCurrent==="Intraday"?"selected":""}>Intraday</option>`;
+      html += `<option value="Swing" ${horizonCurrent==="Swing"?"selected":""}>Swing</option>`;
+      html += `</select>`;
+      if (!horizonCurrent) {
+        html += `<span style="font-size:10px;color:var(--yellow,#ca8a04);font-weight:600">⏸ pick</span>`;
+      } else {
+        html += `<span style="font-size:10px;color:var(--green);font-weight:600">✓ ${horizonCurrent}</span>`;
+      }
+      // H8.4 inline suggest hint (UX 2026-04-29) — visible when horizon NOT picked + geometry ready to suggest
+      // Surfaces what was previously only in Details panel.
+      if (!horizonCurrent) {
+        const hzSuggestInline = suggestTradeHorizon();
+        if (hzSuggestInline) {
+          if (hzSuggestInline.allOutOfRange) {
+            html += `<span style="font-size:10px;color:#8b5cf6;margin-left:4px">💡 H8.4: targets premature — Wait Mode = target_premature</span>`;
+          } else if (hzSuggestInline.horizon) {
+            html += `<span style="font-size:10px;margin-left:4px;display:inline-flex;align-items:center;gap:4px">`;
+            html += `<span style="color:#8b5cf6">💡 H8.4 suggest: <b>${hzSuggestInline.horizon}</b></span>`;
+            html += `<button onclick="setTradeHorizon('${hzSuggestInline.horizon}')" style="font-size:10px;padding:1px 6px;border:1px solid #8b5cf6;background:rgba(139,92,246,0.08);color:#8b5cf6;border-radius:3px;cursor:pointer;font-weight:600">Apply</button>`;
+            html += `</span>`;
+          }
+        }
+      }
+      html += `</div>`;
+      // ATR fields — UX 2026-04-29: hide inactive ATR when Horizon picked (only show relevant one)
+      // When Horizon=empty, show both (so user can fill before picking horizon)
+      const atr1hSet = state.atr_1h && state.atr_1h > 0;
+      const atrDSet = state.atr_d && state.atr_d > 0;
+      const showATR1H = !horizonCurrent || horizonCurrent === "Intraday";
+      const showATRD = !horizonCurrent || horizonCurrent === "Swing";
+      if (showATR1H) {
+        const atr1hOpacity = horizonCurrent === "Intraday" ? "1.0" : "0.55";
+        html += `<div style="display:flex;align-items:center;gap:8px;opacity:${atr1hOpacity}">`;
+        html += `<span class="lbl"><span class="tip">ATR(14) @ 1H ⓘ<span class="tip-box">${atrTooltip1H}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
+        html += `<input type="text" inputmode="decimal" id="inp_atr_1h" class="mini-input" style="width:80px" placeholder="e.g. 0.5" value="${atrCurrent1H}" onchange="setATR1H(this.value)" onblur="setATR1H(this.value)">`;
+        html += `<span style="font-size:10px;color:${atr1hSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">`;
+        html += atr1hSet ? `✓` : `·`;
+        html += `</span>`;
+        html += `</div>`;
+      }
+      if (showATRD) {
+        const atrDOpacity = horizonCurrent === "Swing" ? "1.0" : "0.55";
+        html += `<div style="display:flex;align-items:center;gap:8px;opacity:${atrDOpacity}">`;
+        html += `<span class="lbl"><span class="tip">ATR(14) @ 1D ⓘ<span class="tip-box">${atrTooltipD}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
+        html += `<input type="text" inputmode="decimal" id="inp_atr_d" class="mini-input" style="width:80px" placeholder="e.g. 2.69" value="${atrCurrentD}" onchange="setATRD(this.value)" onblur="setATRD(this.value)">`;
+        html += `<span style="font-size:10px;color:${atrDSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">`;
+        html += atrDSet ? `✓` : `·`;
+        html += `</span>`;
+        html += `</div>`;
+      }
+      // Wait Mode override dropdown — same row as Horizon (UX 2026-04-29)
+      html += `<div style="display:flex;align-items:center;gap:8px">`;
+      html += `<span class="lbl"><span class="tip">Wait ⓘ<span class="tip-box">${waitTooltip}</span></span></span>`;
+      html += `<select id="sel_wait_sub_type" onchange="setWaitSubType(this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--border,#ddd);border-radius:4px;background:var(--bg,#fff);font-family:'JetBrains Mono',monospace">`;
+      html += `<option value="" ${waitCurrent===""?"selected":""}>(auto)</option>`;
+      html += `<option value="post_sweep_digestion" ${waitCurrent==="post_sweep_digestion"?"selected":""}>post-sweep digestion</option>`;
+      html += `<option value="target_premature" ${waitCurrent==="target_premature"?"selected":""}>target premature</option>`;
+      html += `<option value="htf_pending" ${waitCurrent==="htf_pending"?"selected":""}>htf pending (await LTF trigger)</option>`;
+      html += `</select>`;
+      if (waitCurrent) {
+        html += `<span style="font-size:10px;color:var(--yellow,#ca8a04);font-weight:600">⚠ Wait</span>`;
+      }
+      html += `</div>`;
+      html += `</div>`;
+    }
     if (g.key === "htf") {
       // Determine which fields visible based on selected types
       const dlAboveCount = Array.isArray(state.draw_level_above) ? state.draw_level_above.length : (state.draw_level_above ? 1 : 0);
@@ -2079,7 +2135,7 @@ function render() {
         inner += `</div>`;
         return inner;
       };
-      html += renderPriceField("current", "Current", priceCurrentTooltip, "e.g. 76050");
+      html += renderPriceField("current", "Price", priceCurrentTooltip, "e.g. 76050");
       // Above side: TP1 + (TP2 if tiered)
       if (dlAboveSelected) {
         html += renderPriceField("target_above", dlAboveTiered ? "TP1↑" : "Target↑", priceTargetAboveTooltip, "e.g. 79428");
@@ -2100,14 +2156,14 @@ function render() {
         html += renderPriceField("barrier_below", barBelowTiered ? "B1↓" : "Barrier↓", priceBarrierBelowTooltip, "e.g. 75000");
         if (barBelowTiered) html += renderPriceField("barrier_below_2", "B2↓", priceBarrierBelow2Tooltip, "e.g. 74000");
       }
-      if (extremeSelected) html += renderPriceField("near_extreme", "Extreme", priceNearExtremeTooltip, "e.g. 79428");
+      // Note (2026-04-29 UX): Extreme price input now rendered inline with HTF Extreme buttons row, not here.
       html += `</div>`;
     }
     // H1.19 — Notes + TP1/TP2 template (inside HTF Context, full width, after all fields, before verdict/status line)
     if (g.key === "htf") {
       html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);gap:6px;align-items:flex-start">`;
       html += `<span class="lbl" style="padding-top:6px">Notes</span>`;
-      html += `<textarea class="mini-input flex" id="notes" placeholder="observations, context..." style="min-height:28px;resize:vertical;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5" oninput="localStorage.setItem('tc_notes',this.value);autoGrowNotes(this)"></textarea>`;
+      html += `<textarea class="mini-input flex" id="notes" rows="1" placeholder="observations, context..." style="min-height:24px;height:24px;resize:vertical;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;overflow:hidden" oninput="localStorage.setItem('tc_notes',this.value);autoGrowNotes(this)"></textarea>`;
       html += `<button type="button" onclick="insertT1T2Template()" title="Auto-fills Notes with current Liq./Barrier selection + verdict + TP1/TP2 template (H1.19)" style="padding:4px 8px;font-size:10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;white-space:nowrap">＋ TP1/TP2</button>`;
       html += `</div>`;
     }
@@ -2418,6 +2474,58 @@ function renderTopPills() {
       if (el) el.className = 'pill sel';
     }
   });
+  // Custom asset input sync (UX 2026-04-29: PEPE replaced с custom input)
+  const customInput = document.getElementById('asset_custom');
+  if (customInput) {
+    const isCustom = state.asset && !["BTC","ETH","SOL"].includes(state.asset);
+    // Avoid clobbering active typing
+    if (document.activeElement !== customInput) {
+      customInput.value = isCustom ? state.asset : "";
+    }
+    customInput.style.borderColor = isCustom ? "var(--green)" : "var(--border,#ddd)";
+    customInput.style.background = isCustom ? "rgba(22,163,74,0.08)" : "var(--bg,#fff)";
+    customInput.style.color = isCustom ? "var(--green)" : "inherit";
+    customInput.style.fontWeight = isCustom ? "700" : "400";
+  }
+}
+ 
+// Custom asset setter (UX 2026-04-29) — replaces PEPE pill с free-text asset entry.
+// Asset is stored uppercased in state.asset. ATR + price loaders work для any asset symbol.
+// Notion select field "Asset" auto-creates new options when unknown value is sent.
+function setCustomAsset(rawValue) {
+  const val = (rawValue || "").trim().toUpperCase();
+  const wasCustom = state.asset && !["BTC","ETH","SOL"].includes(state.asset);
+  if (!val) {
+    // Empty input — only clear if currently set to a custom asset
+    if (wasCustom) {
+      state.asset = undefined;
+      state.atr_1h = undefined;
+      state.atr_d = undefined;
+      clearAllPrices();
+      localStorage.setItem('tc_state', JSON.stringify(state));
+      render();
+    }
+    return;
+  }
+  // If user types BTC/ETH/SOL — route through normal pickTop so pill highlights properly
+  if (["BTC","ETH","SOL"].includes(val)) {
+    if (state.asset !== val) {
+      state.asset = val;
+      loadATRForAsset(val);
+      clearAllPrices();
+      localStorage.setItem('tc_state', JSON.stringify(state));
+      render();
+    }
+    return;
+  }
+  // Custom asset
+  if (state.asset !== val) {
+    state.asset = val;
+    loadATRForAsset(val);
+    clearAllPrices();
+    localStorage.setItem('tc_state', JSON.stringify(state));
+    render();
+  }
 }
  
 function toggleDisp(id) {

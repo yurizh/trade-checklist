@@ -1,6 +1,3 @@
-Index · HTML
-Copy
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -89,14 +86,12 @@ Copy
  
 <div class="header">
   <div class="header-title" style="display:flex;align-items:center;gap:14px;font-size:13px;letter-spacing:0.04em;font-weight:700;flex-wrap:wrap">
-    <span style="display:inline-flex;align-items:center;gap:4px"><span class="lbl" style="font-size:11px;font-weight:600">Asset</span>
+    <span style="display:inline-flex;align-items:center;gap:6px"><span class="lbl" style="font-size:11px;font-weight:600">Asset</span>
       <button class="pill" onclick="pickTop('asset','BTC')" id="pill_asset_BTC">BTC</button>
       <button class="pill" onclick="pickTop('asset','ETH')" id="pill_asset_ETH">ETH</button>
       <button class="pill" onclick="pickTop('asset','SOL')" id="pill_asset_SOL">SOL</button>
       <input type="text" id="asset_custom" placeholder="Other" oninput="setCustomAsset(this.value)" onblur="setCustomAsset(this.value)" style="width:62px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:3px;font-family:'JetBrains Mono',monospace;text-transform:uppercase">
-    </span>
-    <span style="display:inline-flex;align-items:center;gap:4px"><span class="lbl" style="font-size:11px;font-weight:600">Mode</span>
-      <button class="pill" onclick="pickTop('mode','Live')" id="pill_mode_Live">Live</button>
+      <button class="pill" onclick="pickTop('mode','Live')" id="pill_mode_Live" style="margin-left:8px">Live</button>
       <button class="pill" onclick="pickTop('mode','Backtest')" id="pill_mode_Backtest">Backtest</button>
     </span>
   </div>
@@ -155,7 +150,12 @@ const OPT_LABELS = {
   "Balanced": "Balance",
   "Trend 3/3 Bull": "3/3 Bull",
   "Trend 3/3 Bear": "3/3 Bear",
-  "Trend 3/3": "3/3"
+  "Mod 2/3 Bull": "2/3 Bull",
+  "Mod 2/3 Bear": "2/3 Bear",
+  "Trend 3/3": "3/3",
+  // Resolution options — timeframe stripped from button text (now shown в section label "Resolution 30-90m")
+  "OI Stabilized 30-60m": "OI Stabilized",
+  "No Resolution 60-90m⛔": "No Resolution⛔"
 };
 function optLabel(o) { return OPT_LABELS[o] || o; }
  
@@ -165,7 +165,7 @@ const GROUPS = [
     fields:[
       {id:"weekly_bias",label:"Weekly Bias",opts:["Bullish","Bearish","Balanced"]},
       {id:"daily_bias",label:"Daily Bias",opts:["Bullish","Bearish","Balanced"]},
-      {id:"regime",label:"Regime",opts:["Trend 3/3 Bull","Trend 3/3 Bear","Mod 2/3 Bull","Mod 2/3 Bear","Neutral"]},
+      {id:"regime",label:"Regime",opts:["Trend 3/3 Bull","Trend 3/3 Bear","Mod 2/3 Bull","Mod 2/3 Bear"]},
       {id:"liq_draw",label:"Target Liq.",opts:["Above","Below","Both"]},
       {id:"swept",label:"Recently Swept",opts:["Above","Below","Both"],optional:true},
       {id:"barrier_above",label:"Barrier Above (≤ 2×ATR 1H)",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
@@ -1386,10 +1386,11 @@ function renderVerboseHTF() {
   };
  
   let out = "";
-  out += `<div style="margin-top:6px">`;
-  out += `<details style="font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6">`;
-  out += `<summary style="cursor:pointer;color:var(--muted);font-size:11px;padding:2px 0;user-select:none">▼ Details</summary>`;
-  out += `<div style="padding:8px 6px 4px 6px;background:var(--bg-alt,rgba(0,0,0,0.02));border-radius:4px;margin-top:4px">`;
+  // UX 2026-04-29: Details toggle moved to Notes row (replaces ＋ TP1/TP2 button).
+  // Render content only when user explicitly opens via the Details button.
+  if (localStorage.getItem('tc_details_open') !== '1') return "";
+  out += `<div style="margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6">`;
+  out += `<div style="padding:8px 6px 4px 6px;background:var(--bg-alt,rgba(0,0,0,0.02));border-radius:4px">`;
   // 2-column grid: Col1 = Direction, Mode, Phase, Extreme · Col2 = Conviction, Blockers, Warnings
   out += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">`;
   // ===== COLUMN 1 =====
@@ -1700,7 +1701,7 @@ function renderVerboseHTF() {
   // ===== END GRID =====
   out += `</div>`;
  
-  out += `</div></details></div>`;
+  out += `</div></div>`;
   return out;
 }
  
@@ -1712,6 +1713,13 @@ function autoGrowNotes(el) {
   el.style.height = target + "px";
   // Show scrollbar only when content exceeds max
   el.style.overflowY = el.scrollHeight > 300 ? "auto" : "hidden";
+}
+ 
+// UX 2026-04-29: Details panel toggle — replaces native <details> element с persisted state
+function toggleDetails() {
+  const cur = localStorage.getItem('tc_details_open') === '1';
+  localStorage.setItem('tc_details_open', cur ? '0' : '1');
+  render();
 }
  
 // H1.19 — TP1/TP2 template: auto-fill Notes with current Liq./Barrier selection + verdict + blank template
@@ -1776,8 +1784,7 @@ function render() {
     html += `<div class="group" style="border-left:3px solid ${g.color}">`;
     html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}`;
     if (g.key === "htf") html += buildHTFStatusInline();
-    html += `<button class="rules-btn" onclick="toggleRules('${g.key}')">${rulesOpen[g.key] ? '▼rules' : '▶rules'}</button></div>`;
-    if (rulesOpen[g.key]) html += `<div class="rules-text">${g.rules}</div>`;
+    html += `</div>`;
     
     if (g.key === "htf") {
       // ===== Compact HTF Context layout (April 21, 2026) =====
@@ -2159,12 +2166,13 @@ function render() {
       // Note (2026-04-29 UX): Extreme price input now rendered inline with HTF Extreme buttons row, not here.
       html += `</div>`;
     }
-    // H1.19 — Notes + TP1/TP2 template (inside HTF Context, full width, after all fields, before verdict/status line)
+    // Notes + Details toggle (UX 2026-04-29: replaced + TP1/TP2 button with inline Details link to save vertical space)
     if (g.key === "htf") {
       html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);gap:6px;align-items:flex-start">`;
       html += `<span class="lbl" style="padding-top:6px">Notes</span>`;
       html += `<textarea class="mini-input flex" id="notes" rows="1" placeholder="observations, context..." style="min-height:24px;height:24px;resize:vertical;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;overflow:hidden" oninput="localStorage.setItem('tc_notes',this.value);autoGrowNotes(this)"></textarea>`;
-      html += `<button type="button" onclick="insertT1T2Template()" title="Auto-fills Notes with current Liq./Barrier selection + verdict + TP1/TP2 template (H1.19)" style="padding:4px 8px;font-size:10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;white-space:nowrap">＋ TP1/TP2</button>`;
+      const detailsOpen = localStorage.getItem('tc_details_open') === '1';
+      html += `<button type="button" onclick="toggleDetails()" title="Toggle verbose Details panel — full Mode/Conviction/Blockers/Warnings breakdown" style="padding:4px 8px;font-size:10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;white-space:nowrap;margin-top:2px">${detailsOpen ? '▼ Details' : '▶ Details'}</button>`;
       html += `</div>`;
     }
     
@@ -2216,13 +2224,13 @@ function render() {
       let stateLabel = ms || "—";
       if (isSqueeze && sqzResolved) stateLabel = ms.replace("⛔","") + " → " + sqz;
       if (isSqueeze) {
-        const sqzOpts = ["OI Stabilized 30-60m","New OI Build & Price Hold","HTF Sweep","No Resolution 60-90m⛔"];
-        html += `<div class="row"><span class="lbl">Resolution</span><div class="pills">`;
+        const sqzOpts = ["OI Stabilized 30-60m","HTF Sweep","New OI Build & Price Hold","No Resolution 60-90m⛔"];
+        html += `<div class="row"><span class="lbl">Resolution <span style="color:var(--muted);font-weight:400;font-size:10px">30-90m</span></span><div class="pills">`;
         for (const o of sqzOpts) {
           const sel = state.sqzresol === o;
           const isStop = o.includes("⛔");
           const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
-          html += `<button class="${cls}" onclick="pick('sqzresol','${o}')">${o}</button>`;
+          html += `<button class="${cls}" onclick="pick('sqzresol','${o}')">${optLabel(o)}</button>`;
         }
         html += `</div></div>`;
       }

@@ -20,7 +20,7 @@
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: var(--bg); color: var(--fg); font-family: 'JetBrains Mono', monospace; font-size: 14px; padding: 10px 16px; max-width: 960px; margin: 0 auto; }
- 
+
   .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 6px; }
   .header-title { font-size: 16px; font-weight: 700; letter-spacing: 0.1em; }
   .header-right { display: flex; gap: 10px; align-items: center; }
@@ -30,7 +30,7 @@
   .btn-reset { font-size: 12px; color: var(--muted); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; cursor: pointer; font-family: inherit; }
   .btn-reset:hover { color: var(--fg); border-color: var(--muted); }
   .flow { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; margin-bottom: 8px; }
- 
+
   .col-row { display: flex; gap: 8px; margin-bottom: 3px; }
   .col-row > .group { flex: 1; min-width: 0; }
   .col-row .pills { flex-direction: row; flex-wrap: wrap; gap: 4px; }
@@ -43,11 +43,11 @@
   .rules-btn:hover { opacity: 0.7; }
   .rules-text { font-size: 11px; color: var(--muted); line-height: 1.6; margin-bottom: 5px; padding-right: 8px; }
   .status-icon { font-size: 13px; }
- 
+
   .row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; flex-wrap: wrap; }
   .lbl { font-size: 11px; color: var(--muted); min-width: 75px; flex-shrink: 0; }
   .pills { display: flex; gap: 4px; flex-wrap: wrap; }
- 
+
   .pill { padding: 3px 10px; font-size: 12px; font-family: 'JetBrains Mono', monospace; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; transition: all 0.15s; white-space: nowrap; letter-spacing: 0.02em; }
   .pill:hover { border-color: var(--muted); color: var(--fg); }
   .pill.sel { border-color: var(--green); background: var(--green-bg); color: var(--green-text); font-weight: 600; }
@@ -61,7 +61,7 @@
   .tip:hover .tip-box { display: block; }
   .tip-box { display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; background: #1a1a1a; color: #e5e5e5; border: 1px solid #444; border-radius: 6px; padding: 8px 12px; font-size: 10px; line-height: 1.5; white-space: pre-line; z-index: 100; min-width: 240px; max-width: 380px; box-shadow: 0 4px 16px rgba(0,0,0,0.5); font-family: 'JetBrains Mono', monospace; letter-spacing: 0; }
   .tip-box strong { color: #fbbf24; }
- 
+
   .disp-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   .disp-check { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 13px; color: var(--muted); }
   .disp-check.checked { color: var(--green-text); }
@@ -69,16 +69,16 @@
   .disp-result { font-size: 13px; font-weight: 700; }
   .disp-pass { color: var(--green); }
   .disp-fail { color: var(--red); }
- 
+
   .mini-input { background: var(--input-bg); border: 1px solid var(--border); border-radius: 4px; color: var(--fg); padding: 3px 8px; font-size: 13px; font-family: 'JetBrains Mono', monospace; width: 72px; }
   .mini-input:focus { outline: none; border-color: var(--muted); }
   .mini-input.w48 { width: 56px; }
   .mini-input.flex { flex: 1; width: auto; }
- 
+
   .tc-select { font-size: 11px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--input-bg); color: var(--fg); font-family: 'JetBrains Mono', monospace; }
   .tc-select:focus { outline: none; border-color: var(--muted); }
   .tc-select option { background: var(--input-bg); color: var(--fg); }
- 
+
   .footer { border-top: 1px solid var(--border); padding-top: 6px; margin-top: 4px; }
   .footer-row { display: flex; gap: 8px; align-items: center; }
   .post-btn { font-size: 11px; color: var(--muted); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; cursor: pointer; font-family: inherit; }
@@ -87,14 +87,14 @@
 </style>
 </head>
 <body>
- 
+
 <div class="header">
   <div class="header-title" style="display:flex;align-items:center;gap:14px;font-size:13px;letter-spacing:0.04em;font-weight:700;flex-wrap:wrap">
     <span style="display:inline-flex;align-items:center;gap:6px"><span class="lbl" style="font-size:11px;font-weight:600">Asset</span>
       <button class="pill" onclick="pickTop('asset','BTC')" id="pill_asset_BTC">BTC</button>
       <button class="pill" onclick="pickTop('asset','ETH')" id="pill_asset_ETH">ETH</button>
       <button class="pill" onclick="pickTop('asset','SOL')" id="pill_asset_SOL">SOL</button>
-      <input type="text" id="asset_custom" placeholder="Other" oninput="setCustomAsset(this.value)" onblur="setCustomAsset(this.value)" style="width:62px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:3px;font-family:'JetBrains Mono',monospace;text-transform:uppercase">
+      <input type="text" id="asset_custom" placeholder="Other" oninput="setCustomAsset(this.value)" onblur="setCustomAsset(this.value, true)" style="width:62px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:3px;font-family:'JetBrains Mono',monospace;text-transform:uppercase">
       <button class="pill" onclick="pickTop('mode','Live')" id="pill_mode_Live" style="margin-left:8px">Live</button>
       <button class="pill" onclick="pickTop('mode','Backtest')" id="pill_mode_Backtest">Backtest</button>
     </span>
@@ -128,9 +128,9 @@
   </div>
 </div>
 <div id="saveStatus" style="display:none;font-size:12px;padding:4px 0;margin-bottom:4px;"></div>
- 
+
 <div id="checklist"></div>
- 
+
 <div class="footer">
   <div class="footer-row">
     <span class="lbl">Screenshot</span>
@@ -142,10 +142,10 @@ Time: A=4h, B=2h | Max 4-6h | Re-entry: new disp+OI build+30-60m reset
 OI 5M: ≥1%/30m→hold | <0.5%→reduce50%+BE | spike>2%/5-15m→exit | drop>2%→profit:reduce+BE, entry:exit
 Exit: no disp 3-5 candles→exit 50-100% | no confirm 30-60m→invalidate | 2 stops→skip 1 day</div>
 </div>
- 
+
 <script>
 const STOP = new Set(["S.Squeeze⛔","Flat⛔","Diverge⛔","Extreme⛔","No Trade⛔","Fail⛔","Conflict⛔","No Resolution 60-90m⛔","Spike⛔","Too Close⛔","Too Far⛔"]);
- 
+
 // OPT_LABELS (UX 2026-04-29) — display labels for select options.
 // VALUES в state remain unchanged (logic depends on them); only button text shortened.
 // "Bullish"/"Bearish"/"Balanced" → "Bull"/"Bear"/"Balance"; "Trend " prefix removed from Regime.
@@ -165,7 +165,7 @@ const OPT_LABELS = {
   "New OI Build & Price Hold": "OI Build + Direction Conf"
 };
 function optLabel(o) { return OPT_LABELS[o] || o; }
- 
+
 const GROUPS = [
   { key:"htf", title:"1. HTF CONTEXT", color:"#3b82f6",
     rules:"Weekly Bias = primary (Direction) | Daily Bias = modifier (conviction) | Target Liq. + Recently Swept → Phase (Accumulation/Post-sweep/Transition) | Barrier in direction blocks/lowers conviction (HTF FVG=no impact) | Regime restricts risk | Liq. Minor = -1 conv | Near HTF Extreme required for ANY Reversal mode",
@@ -228,14 +228,14 @@ const GROUPS = [
     ],
     extra:"trade_nums"}
 ];
- 
+
 const DISP_CRIT = [{id:"d_body",label:"Body≥60%"},{id:"d_wick",label:"Wick≤35%"},{id:"d_range",label:"Range≥1.2×ATR"},{id:"d_vol",label:"Vol≥1.3×Avg"}];
- 
+
 let state = {};
 let dispState = {d_body:false, d_wick:false, d_range:false, d_vol:false};
 let rulesOpen = {};
 let postOpen = false;
- 
+
 // ATR persistence + distance helpers (H1.22, H1.25, O7.2 — added 2026-04-27)
 // H8.1 (2026-04-28): extended to support both ATR(14) @ 1H (Intraday) и ATR(14) @ 1D (Swing).
 // Per-asset persistence: localStorage['tc_atr_1h_BTC'], 'tc_atr_d_BTC', etc.
@@ -275,9 +275,13 @@ function saveATRDForAsset(asset, value) {
 }
 // H8.1: Trade horizon helpers — Intraday selects ATR(1H), Swing selects ATR(D).
 // Multipliers per horizon (target_premature, barrier_active, post_sweep_digestion):
+// B4 fix (2026-04-29): Raised Swing.target 2.5 → 4 для symmetry с Intraday.
+// Was: Swing.target=2.5 created edge case where DOGE-like distance 3.62× ATR(D) classified as OutOfRange,
+// despite being well within natural swing range (1-2 weeks hold). Symmetric 4× multiplier corresponds
+// to ~4 daily candles ≈ 1 trading week, which matches swing trade horizon intent.
 const HORIZON_MULTIPLIERS = {
   Intraday: { target: 4, barrier: 2, digestion: 2 },
-  Swing:    { target: 2.5, barrier: 1, digestion: 1 }
+  Swing:    { target: 4, barrier: 1, digestion: 1 }
 };
 function activeATR() {
   // Returns active ATR value based on trade_horizon, or null if horizon/ATR not set
@@ -300,7 +304,7 @@ function distanceInAtr(price1, price2) {
   if (price1 === undefined || price2 === undefined || isNaN(price1) || isNaN(price2)) return null;
   return Math.abs(price1 - price2) / atr;
 }
- 
+
 // H9.1 (2026-04-29): Setup Geometry — price field helpers
 // H8.2 (2026-04-29): extended for tiered targets — target_above_2 / target_below_2 added
 // H8.3 (2026-04-29): extended for multi-barrier support — barrier_above_2 / barrier_below_2 added
@@ -351,7 +355,7 @@ function setPrice(field, value) {
   }
   render();
 }
- 
+
 // H9.1: Distance from current price to a named target/barrier price field, in active ATR units
 // Returns: { ratio, atrLabel, valid: boolean, reason?: string }
 function priceDistanceCheck(targetField) {
@@ -370,7 +374,7 @@ function priceDistanceCheck(targetField) {
     delta: target - cur
   };
 }
- 
+
 // H9.1: Auto-action — should suggest Wait Mode = target_premature?
 // Fires when active horizon set + nearest target distance exceeds horizon's target multiplier
 // H8.2 (2026-04-29): considers ALL selected targets (TP1+TP2). Only suggests if NEAREST target premature.
@@ -410,7 +414,7 @@ function shouldSuggestTargetPremature() {
   }
   return null;
 }
- 
+
 // H9.1: Auto-action — should suggest Wait Mode = post_sweep_digestion?
 // Fires when extreme price set + Recently Swept matches + distance > digestion threshold
 function shouldSuggestPostSweepDigestion() {
@@ -429,7 +433,7 @@ function shouldSuggestPostSweepDigestion() {
   }
   return null;
 }
- 
+
 // H9.1: Auto-action — should mark barrier as inactive (out of horizon range)?
 // Fires when barrier price set + distance > horizon's barrier multiplier
 // H8.3 (2026-04-29): supports barrier_above/barrier_below_2 — accepts barrier index
@@ -442,7 +446,7 @@ function isBarrierOutOfRange(side, idx) {
   if (!check.valid) return false;
   return check.ratio > m.barrier;
 }
- 
+
 // H8.3: Get all selected barriers on a side с their prices
 // Returns array: [ { field, price, label } ] для barriers that have prices set
 function barriersAnalysis(side) {
@@ -462,7 +466,7 @@ function barriersAnalysis(side) {
   });
   return out;
 }
- 
+
 // H8.2 (2026-04-29): Detect native horizon for a single target price.
 // Returns "Intraday" / "Swing" / "Both" / "OutOfRange" / null
 // "Both" = reachable on both horizons (small distance — safe scalp + swing eligible)
@@ -476,7 +480,7 @@ function targetNativeHorizon(targetField) {
   if (!atr1h && !atrD) return null;
   const dist = Math.abs(target - cur);
   const intradayThreshold = HORIZON_MULTIPLIERS.Intraday.target; // 4×
-  const swingThreshold = HORIZON_MULTIPLIERS.Swing.target; // 2.5×
+  const swingThreshold = HORIZON_MULTIPLIERS.Swing.target; // 4× (raised from 2.5× per B4 2026-04-29)
   const intradayReach = atr1h ? (dist / atr1h) <= intradayThreshold : false;
   const swingReach = atrD ? (dist / atrD) <= swingThreshold : false;
   if (intradayReach && swingReach) return "Both";
@@ -484,7 +488,7 @@ function targetNativeHorizon(targetField) {
   if (swingReach) return "Swing";
   return "OutOfRange";
 }
- 
+
 // H8.2: Get all selected targets for a side (TP1 + TP2 if present), with horizon classification
 // Returns array: [ { field, price, ratio_1h, ratio_d, native, label } ]
 function targetsAnalysis(side) {
@@ -513,7 +517,7 @@ function targetsAnalysis(side) {
   });
   return out;
 }
- 
+
 // H8.4 (2026-04-29): Auto-suggest Trade Horizon based on target geometry.
 // Analyzes all selected targets (above + below sides), determines which horizon makes sense.
 // Logic:
@@ -570,7 +574,7 @@ function suggestTradeHorizon() {
     reason: "all targets Intraday-reachable"
   };
 }
- 
+
 // O7.22 (2026-04-29): Cross-field suggest — when squeeze active + Resolution selected,
 // suggest matching Section 3 OI 15M values (price 30-60m + OI 30-60m).
 // Reduces friction где same observation captured in both fields.
@@ -612,7 +616,7 @@ function suggestSection3FromResolution() {
   
   return { oi15_oi: filteredOi, oi15_price: filteredPrice, reason };
 }
- 
+
 // H8.2: Path-aware barrier check.
 // For each target on the same side, determine if barrier sits in path between current + target.
 // H8.3 (2026-04-29): Multi-barrier support — checks all barriers on side, returns per-barrier path analysis.
@@ -646,7 +650,7 @@ function barrierPathAware(side) {
   });
   return { barriers: result, targets: targetLabels, present: true };
 }
- 
+
 function computeTradeCall() {
   const bias = state.weekly_bias;
   if (!bias) return null;
@@ -655,7 +659,7 @@ function computeTradeCall() {
   if (bias === "Balanced") return "Both↓";
   return null;
 }
- 
+
 // Liq. level type → strength mapping (O7.6)
 const DRAW_LEVEL_STRENGTH = {
   "HTF Swing H":"Major","HTF Swing L":"Major",
@@ -666,7 +670,7 @@ const DRAW_LEVEL_STRENGTH = {
   "Session H":"Minor","Session L":"Minor","DO":"Minor","FVG edge":"Minor"
 };
 function drawLevelStrength(type) { return DRAW_LEVEL_STRENGTH[type] || null; }
- 
+
 // HTF Extreme type → strength mapping (H1.18)
 // Major = Weekly+ structural / Medium = Daily structural + MO
 const EXTREME_STRENGTH = {
@@ -674,7 +678,7 @@ const EXTREME_STRENGTH = {
   "PDH":"Medium","PDL":"Medium","EQH":"Medium","EQL":"Medium","MO":"Medium"
 };
 function extremeStrength(type) { return EXTREME_STRENGTH[type] || null; }
- 
+
 function barrierStrength(arr) {
   if (!Array.isArray(arr) || !arr.length) return 0;
   const strong = arr.filter(t => t !== "HTF FVG");
@@ -682,7 +686,7 @@ function barrierStrength(arr) {
   if (strong.length === 1) return 1;
   return 0;
 }
- 
+
 function barrierStrengthLabel(arr) {
   if (!Array.isArray(arr) || !arr.length) return null;
   const t = barrierStrength(arr);
@@ -691,7 +695,7 @@ function barrierStrengthLabel(arr) {
   if (t === 2) return {label:"Strong", trigger:-2};
   return null;
 }
- 
+
 function computeLiquidityPhase() {
   const draw = state.liq_draw;
   const swept = state.swept;
@@ -713,7 +717,7 @@ function computeLiquidityPhase() {
   // Draw opposite to swept = accumulation-like
   return "Accumulation";
 }
- 
+
 // Returns effective Target Liq. direction after sweep adjustment
 // When Draw=Both but one side swept → effective draw shifts to unswept side
 function computeEffectiveLiqDirection() {
@@ -724,8 +728,60 @@ function computeEffectiveLiqDirection() {
   if (draw === "Both" && swept === "Below") return "Above";  // Below side exhausted, target Above
   return draw;  // no shift needed
 }
- 
+
+// H1.20 promoted (2026-04-29 from warning to active override, counter:4):
+// Daily-led override — when Weekly=Balanced + Daily directional + 4 supporting conditions,
+// Direction = Daily direction (не Both↓), Mode = Continuation following Daily.
+// Returns "Long" / "Short" / null.
+//
+// Conditions (all required):
+//   1. Weekly Bias = Balanced
+//   2. Daily Bias = Bullish OR Bearish (directional)
+//   3. Target Liq matches Daily direction (after sweep adjustment)
+//   4. Opposite side liquidity all Minor strength (or empty)
+//   5. Barrier on Daily side weak (empty or HTF FVG only)
+//
+// Side effect: H1.20 warning replaced by override message в detectHTFWarnings (logic shared).
+function isDailyLedOverrideActive() {
+  const W = state.weekly_bias;
+  const D = state.daily_bias;
+  
+  // Conditions 1 & 2: Weekly Balanced + Daily directional
+  if (W !== "Balanced") return null;
+  if (D !== "Bullish" && D !== "Bearish") return null;
+  
+  // Condition 3: Target Liq matches Daily direction (use effective draw after sweep adjustment)
+  const effDraw = computeEffectiveLiqDirection();
+  const dailyDir = D === "Bullish" ? "Above" : "Below";
+  // Match if effective draw == dailyDir, OR raw draw == "Both" (covers both sides initially)
+  const targetMatch = effDraw === dailyDir || state.liq_draw === "Both";
+  if (!targetMatch) return null;
+  
+  // Condition 4: Opposite side liquidity all Minor (or empty)
+  const dlAbove = Array.isArray(state.draw_level_above) ? state.draw_level_above : (state.draw_level_above ? [state.draw_level_above] : []);
+  const dlBelow = Array.isArray(state.draw_level_below) ? state.draw_level_below : (state.draw_level_below ? [state.draw_level_below] : []);
+  const allMinor = (arr) => {
+    if (!arr.length) return true;
+    return arr.every(t => drawLevelStrength(t) === "Minor");
+  };
+  const oppositeClean = D === "Bullish" ? allMinor(dlBelow) : allMinor(dlAbove);
+  if (!oppositeClean) return null;
+  
+  // Condition 5: Barrier on Daily side weak (empty или HTF FVG only)
+  const blockingBarrier = D === "Bullish" ? state.barrier_above : state.barrier_below;
+  const bArr = Array.isArray(blockingBarrier) ? blockingBarrier : (blockingBarrier ? [blockingBarrier] : []);
+  const barrierWeak = bArr.length === 0 || bArr.every(t => t === "HTF FVG");
+  if (!barrierWeak) return null;
+  
+  return D === "Bullish" ? "Long" : "Short";
+}
+
 function computeDirection() {
+  // H1.20 override (2026-04-29 promoted to active): fires before standard logic when 5 conditions met.
+  // Returns Long/Short despite W=Balanced normally → Both↓.
+  const dailyLed = isDailyLedOverrideActive();
+  if (dailyLed) return dailyLed;
+  
   const mode = computeMode();
   const ms = computeMarketState();
   const call = computeTradeCall();
@@ -744,7 +800,7 @@ function computeDirection() {
   if (call === "Short") return "Short";
   return null;
 }
- 
+
 // Regime helpers — extract strength (Trend 3/3 / Mod 2/3 / Neutral) and direction (Bull / Bear / null)
 // Backward compatible with legacy "Trend 3/3" / "Mod 2/3" (no direction suffix)
 function regimeStrength(r) {
@@ -760,7 +816,7 @@ function regimeDirection(r) {
   if (r.endsWith(" Bear")) return "Bear";
   return null; // Neutral or legacy direction-less values
 }
- 
+
 function computeRisk() {
   const s = regimeStrength(state.regime);
   if (!s) return null;
@@ -769,7 +825,7 @@ function computeRisk() {
   if (s === "Neutral") return "Low";
   return null;
 }
- 
+
 // Shared blocker logic — used by both buildHTFStatusInline (header) and renderVerboseHTF (Details).
 // Single source of truth. Returns array of blocker strings (empty = no blockers).
 // Note: Triggers ≥ 3 blocker is added separately in renderVerboseHTF since it depends on trigger count.
@@ -821,7 +877,7 @@ function computeBlockers() {
   
   return blockers;
 }
- 
+
 function computeConviction() {
   const risk = computeRisk();
   if (!risk) return { label: null, triggers: 0 };
@@ -880,7 +936,13 @@ function computeConviction() {
   }
   
   // Regime trigger
-  if (regimeStrength(state.regime) === "Mod 2/3") triggers++;
+  // H1.31 fix (2026-04-29, counter:3): Skip Mod trigger when Direction=Both↓.
+  // Mod 2/3 measures price position relative to opens — informational only when Direction undetermined.
+  // D1 (Mod symmetric penalty rule) preserved — applies only when Direction is committed (Long/Short).
+  // Note: state.regime uses internal values "Mod 2/3 Bull"/"Mod 2/3 Bear" (display labels show "2/3 Bull"/"2/3 Bear").
+  if (regimeStrength(state.regime) === "Mod 2/3") {
+    if (computeDirection() !== "Both↓") triggers++;
+  }
   
   // Market State triggers
   const ms = computeMarketState();
@@ -913,7 +975,7 @@ function computeConviction() {
   const label = triggers <= 1 ? "High" : triggers === 2 ? "Standard" : "Low";
   return { label, triggers };
 }
- 
+
 function computeFunding() {
   const level = state.f_level;
   const trend = state.f_trend;
@@ -939,7 +1001,7 @@ function computeFunding() {
   // Normal
   return "OK";
 }
- 
+
 function computeOI15M() {
   const p = state.oi15_price;
   const oi = state.oi15_oi;
@@ -962,7 +1024,7 @@ function computeOI15M() {
   }
   return null;
 }
- 
+
 function computeMarketState() {
   const p = state.pricedir;
   const oi = state.oidir;
@@ -976,7 +1038,7 @@ function computeMarketState() {
   if (p === "Flat" && oi === "Falling") return "Flat⛔";
   return null;
 }
- 
+
 // H2.x (2026-04-28): Pre-Market State — same matrix as computeMarketState, predecessor inputs.
 // Used для Path Transition annotation. Optional fields — returns null if either empty.
 // ⛔ marker preserved for naming consistency но has NO blocker effect (predecessor is annotation only).
@@ -993,7 +1055,7 @@ function computeMarketStatePre() {
   if (p === "Flat" && oi === "Falling") return "Flat⛔";
   return null;
 }
- 
+
 // H2.x (2026-04-28): Path Transition — combines Pre-Market State + Current Market State
 // into category label. 21 named categories per spec §3.3 + edge case fallback (raw path string).
 // Returns object: { category: string, raw: string, isEdgeCase: bool, interpretation: string } or null
@@ -1061,7 +1123,7 @@ function computePathTransition() {
     interpretation: "Uncommon transition pattern. Manually assess context."
   };
 }
- 
+
 function computeMode() {
   const regime = state.regime;
   const phase = computeLiquidityPhase();
@@ -1082,6 +1144,12 @@ function computeMode() {
   // When trader sets state.wait_sub_type — Mode becomes "Wait".
   // Sub-type tracked для journal/analysis.
   if (state.wait_sub_type) return "Wait";
+  
+  // H1.20 override (2026-04-29 promoted, counter:4): Daily-led override forces Continuation Mode.
+  // Direction = Daily direction, semantics = following Daily structure when Weekly silent.
+  // Placed после Wait/Transition (those still take priority) but before Recently Swept
+  // because override + post-sweep can co-exist (continuation после sweep on same direction).
+  if (isDailyLedOverrideActive()) return "Continuation";
   
   // Recently Swept = Above/Below → Reversal Mode (structural — sweep happened, expect reversal play)
   // Moved BEFORE Regime requirement so HTF Extreme dropdown enables immediately on Swept selection.
@@ -1107,7 +1175,7 @@ function computeMode() {
   
   return "Continuation";
 }
- 
+
 // H1.14 / H1.20 / H1.12.1 — unified warning pattern detection
 // Inject into verbose block's Warnings section. DOES NOT change Direction/Mode/Conviction output —
 // journal data stays clean, warnings aid discipline only.
@@ -1137,7 +1205,8 @@ function detectHTFWarnings(S, call, mode) {
   const bBelow = Array.isArray(S.barrier_below) ? S.barrier_below : [];
   
   // ==== H1.20: Weekly Balanced + Daily directional + Target matches Daily ====
-  // Pattern: Daily should lead when Weekly gives no opinion and all context aligns with Daily
+  // PROMOTED 2026-04-29 to active Direction override (counter:4). Warning kept as informational annotation
+  // showing user что override fired (transparency of the override decision).
   if (W === "Balanced" && D && D !== "Balanced") {
     const dailyDir = D === "Bullish" ? "Above" : "Below";
     const targetMatch = target === dailyDir || target === "Both";
@@ -1147,9 +1216,8 @@ function detectHTFWarnings(S, call, mode) {
       const dir = D === "Bullish" ? "Long" : "Short";
       warnings.push({
         id: "H1.20",
-        title: "Daily-led override candidate",
-        // H1.28 (2026-04-27): generic warning text — no Continuation/Reversal modifier
-        body: `Weekly Balanced + Daily ${D} + Target ${dailyDir} aligned. Opposite side clean, barrier weak. System outputs Both↓ but Daily has clear direction. Consider: Daily-led ${dir} direction.`
+        title: "Daily-led override active",
+        body: `Weekly Balanced + Daily ${D} + Target ${dailyDir} aligned. Opposite side clean, barrier weak. Direction overridden to ${dir} (Continuation following Daily structure).`
       });
     }
   }
@@ -1193,7 +1261,7 @@ function detectHTFWarnings(S, call, mode) {
   
   return warnings;
 }
- 
+
 // Inline compact status summary — placed in section header.
 // Same verdict data as the old banner status line, just compact sizing for inline use.
 function buildHTFStatusInline() {
@@ -1206,6 +1274,7 @@ function buildHTFStatusInline() {
   const waitLabel = (sub) => {
     if (sub === "post_sweep_digestion") return "Wait (post-sweep digestion)";
     if (sub === "target_premature") return "Wait (target premature)";
+    if (sub === "inside_barrier") return "Wait (inside barrier zone)";
     if (sub === "htf_pending") return "Wait (htf pending)";
     return "Wait";
   };
@@ -1269,7 +1338,8 @@ function buildHTFStatusInline() {
       }
     }
   }
-  if (regimeStrength(state.regime) === "Mod 2/3") htfTriggers.push("Mod");
+  // H1.31 fix (2026-04-29): Mod trigger suppressed когда Direction=Both↓ (consistent с computeConviction).
+  if (regimeStrength(state.regime) === "Mod 2/3" && computeDirection() !== "Both↓") htfTriggers.push("Mod");
   const htfTrigCount = htfTriggers.reduce((s, t) => s + (t.includes("×2") ? 2 : 1), 0);
   const htfConvLabel = htfTrigCount <= 1 ? "High" : htfTrigCount === 2 ? "Standard" : "Low";
   // Blocker check (B2 fix): if any structural blocker fires, override dot to red regardless of conviction
@@ -1321,7 +1391,7 @@ function buildHTFStatusInline() {
   s += `</span>`;
   return s;
 }
- 
+
 // O7.11 — Verbose HTF verdict block (collapsed details under status line)
 // Shows every decision input + which triggers cancelled/not-applied + blockers + warnings placeholder
 function renderVerboseHTF() {
@@ -1333,7 +1403,7 @@ function renderVerboseHTF() {
   const regStr = regimeStrength(S.regime);
   const regDir = regimeDirection(S.regime);
   const swept = S.swept;
- 
+
   // Collect trigger status: applied / cancelled / passed (✓)
   const triggerLines = [];
   // W.Bal
@@ -1397,7 +1467,11 @@ function renderVerboseHTF() {
     triggerLines.push({status:"pass", label:"Barr"+barrSide+" empty", note:"no barrier"});
   }
   // Regime trigger
-  if (regStr === "Mod 2/3") triggerLines.push({status:"applied", label:"Mod 2/3", note:"Regime moderate"});
+  // H1.31 fix (2026-04-29): Mod trigger skipped when Direction=Both↓ (informational only без commitment).
+  if (regStr === "Mod 2/3") {
+    if (computeDirection() === "Both↓") triggerLines.push({status:"pass", label:"Mod 2/3", note:"skipped (Both↓ — no commitment, H1.31)"});
+    else triggerLines.push({status:"applied", label:"Mod 2/3", note:"Regime moderate"});
+  }
   else if (regStr === "Trend 3/3") triggerLines.push({status:"pass", label:"Regime = Trend", note:"no Mod trigger"});
   else if (regStr === "Neutral") triggerLines.push({status:"applied", label:"Neutral", note:"forces Reversal mode"});
   // Market State triggers
@@ -1419,18 +1493,18 @@ function renderVerboseHTF() {
   const oi15 = computeOI15M();
   if (oi15 && oi15.includes("⛔")) triggerLines.push({status:"applied", label:"OI "+oi15, note:"OI stop"});
   else if (oi15 && oi15.includes("↓")) triggerLines.push({status:"applied", label:"OI "+oi15, note:"OI reduces"});
- 
+
   // Blockers — using shared computeBlockers() for foundational checks, plus Triggers count blocker
   const blockers = computeBlockers();
   const trigCount = triggerLines.filter(t => t.status === "applied").length;
   if (trigCount >= 3) blockers.push("Triggers ≥ 3 (Too Many Risks)");
- 
+
   // Warnings — detected patterns (H1.14 / H1.20 / H1.12.1)
   const warnings = detectHTFWarnings(S, call, mode);
- 
+
   // Conviction summary
   const convLabel = trigCount <= 1 ? "High" : trigCount === 2 ? "Standard" : "Low";
- 
+
   // Build HTML
   const color = (status) => {
     if (status === "applied") return "var(--red)";
@@ -1446,7 +1520,7 @@ function renderVerboseHTF() {
     if (status === "pass") return "✓";
     return "·";
   };
- 
+
   let out = "";
   // UX 2026-04-29: Details toggle moved to Notes row (replaces ＋ TP1/TP2 button).
   // Render content only when user explicitly opens via the Details button.
@@ -1457,7 +1531,7 @@ function renderVerboseHTF() {
   out += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">`;
   // ===== COLUMN 1 =====
   out += `<div>`;
- 
+
   // Direction
   out += `<div style="margin-bottom:6px"><b>Direction:</b> ${call||"—"}</div>`;
   out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px">`;
@@ -1474,12 +1548,13 @@ function renderVerboseHTF() {
   }
   if (risk) out += `<span style="color:var(--muted)">risk:</span> ${risk} (Regime = ${regStr||"—"})`;
   out += `</div>`;
- 
+
   // H1.25 / H1.24 (2026-04-27): Wait mode display with sub-type
   // H8.1 (2026-04-28): resolution text now horizon-aware (Intraday=4× ATR(1H), Swing=2.5× ATR(D))
   const waitDisplay = (sub) => {
     if (sub === "post_sweep_digestion") return "Wait — post-sweep digestion";
     if (sub === "target_premature") return "Wait — target premature";
+    if (sub === "inside_barrier") return "Wait — inside barrier zone";
     if (sub === "htf_pending") return "Wait — htf pending (await LTF trigger)";
     return "Wait";
   };
@@ -1491,6 +1566,7 @@ function renderVerboseHTF() {
       if (m) return `watch for entry zone closer (target should be ≤ ${m.target}× ${atrLbl} from current price)`;
       return "watch for entry zone closer (target should be reachable from current price)";
     }
+    if (sub === "inside_barrier") return "price inside barrier zone (decision zone) — watch break direction перед entry; если break Up → Long bias, если break Down → Short bias";
     if (sub === "htf_pending") return "watch Section 5 (Entry Trigger) — BOS / Displacement / Sweep+retest на LTF подтверждает HTF setup";
     return "watch for resolution";
   };
@@ -1526,7 +1602,7 @@ function renderVerboseHTF() {
     out += `<span style="color:var(--red)">⛔</span> No Trade — see Blockers`;
   }
   out += `</div>`;
- 
+
   // Phase
   out += `<div style="margin-bottom:6px"><b>Phase:</b> ${phase||"—"}</div>`;
   out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px">`;
@@ -1536,7 +1612,7 @@ function renderVerboseHTF() {
   if (swept && swept !== "None") out += `<span style="color:var(--yellow, #ca8a04)">−1</span> Recently Swept = ${swept}<br>`;
   else out += `<span style="color:var(--green)">✓</span> Not recently swept`;
   out += `</div>`;
- 
+
   // Extreme
   out += `<div style="margin-bottom:6px"><b>Extreme:</b> `;
   if (mode === "Reversal") {
@@ -1563,7 +1639,7 @@ function renderVerboseHTF() {
     out += `not required (Mode=${mode||"—"})`;
   }
   out += `</div>`;
- 
+
   // H9.1 (2026-04-29): Geometry block — distance display + auto-action suggestions
   // H8.2 (2026-04-29): per-target horizon annotation + path-aware barrier display
   // Only render if any price field is filled (avoid clutter when geometry not used)
@@ -1640,7 +1716,7 @@ function renderVerboseHTF() {
       };
       out += renderTargetsForSide("above");
       out += renderTargetsForSide("below");
- 
+
       // H8.2 + H8.3: barriers — path-aware display per barrier
       const renderBarriersForSide = (side) => {
         const pa = barrierPathAware(side);
@@ -1679,7 +1755,7 @@ function renderVerboseHTF() {
       };
       out += renderBarriersForSide("above");
       out += renderBarriersForSide("below");
- 
+
       // Near extreme (unchanged from H9.1)
       if (state.price_near_extreme !== undefined) {
         const c = priceDistanceCheck("near_extreme");
@@ -1721,11 +1797,11 @@ function renderVerboseHTF() {
       }
     }
   }
- 
+
   out += `</div>`;
   // ===== COLUMN 2 =====
   out += `<div>`;
- 
+
   // Conviction
   out += `<div style="margin-bottom:6px"><b>Conviction:</b> ${convLabel} (${trigCount} trigger${trigCount===1?"":"s"})</div>`;
   out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px">`;
@@ -1733,7 +1809,7 @@ function renderVerboseHTF() {
     out += `<span style="color:${color(t.status)};display:inline-block;min-width:22px;text-align:center">${icon(t.status)}</span> <b>${t.label}</b> <span style="color:var(--muted);margin-left:6px">${t.note}</span><br>`;
   }
   out += `</div>`;
- 
+
   // Blockers
   out += `<div style="margin-bottom:6px"><b>Blockers:</b> `;
   if (blockers.length) {
@@ -1744,7 +1820,7 @@ function renderVerboseHTF() {
   } else {
     out += `<span style="color:var(--green)">none</span></div>`;
   }
- 
+
   // Warnings
   out += `<div style="margin-bottom:6px"><b>Warnings:</b> `;
   if (warnings.length) {
@@ -1758,15 +1834,15 @@ function renderVerboseHTF() {
   } else {
     out += `<span style="color:var(--muted)">none</span></div>`;
   }
- 
+
   out += `</div>`;
   // ===== END GRID =====
   out += `</div>`;
- 
+
   out += `</div></div>`;
   return out;
 }
- 
+
 // H1.19 — Notes textarea auto-grow as content increases
 function autoGrowNotes(el) {
   el.style.height = "auto";
@@ -1776,14 +1852,14 @@ function autoGrowNotes(el) {
   // Show scrollbar only when content exceeds max
   el.style.overflowY = el.scrollHeight > 300 ? "auto" : "hidden";
 }
- 
+
 // UX 2026-04-29: Details panel toggle — replaces native <details> element с persisted state
 function toggleDetails() {
   const cur = localStorage.getItem('tc_details_open') === '1';
   localStorage.setItem('tc_details_open', cur ? '0' : '1');
   render();
 }
- 
+
 // H1.19 — TP1/TP2 template: auto-fill Notes with current Liq./Barrier selection + verdict + blank template
 function insertT1T2Template() {
   const notesEl = document.getElementById("notes");
@@ -1814,7 +1890,7 @@ function insertT1T2Template() {
   autoGrowNotes(notesEl);
   notesEl.focus();
 }
- 
+
 function render() {
   const el = document.getElementById("checklist");
   let html = "";
@@ -2082,7 +2158,7 @@ function render() {
       const horizonTooltip = "<strong>Trade Horizon (H8.1) — REQUIRED</strong>\nDeclares intended trade timeframe. Determines which ATR field used for distance check.\n\n<strong>Intraday:</strong> hours — same session entry/exit. Distance check uses <strong>ATR(14) @ 1H</strong>.\n• target premature if distance > <strong>4× ATR(1H)</strong>\n• barrier active if distance ≤ <strong>2× ATR(1H)</strong>\n• post-sweep digestion if distance > <strong>2× ATR(1H)</strong>\n\n<strong>Swing:</strong> 2-7 days — multi-session hold. Distance check uses <strong>ATR(14) @ 1D</strong>.\n• target premature if distance > <strong>2.5× ATR(D)</strong>\n• barrier active if distance ≤ <strong>1× ATR(D)</strong>\n• post-sweep digestion if distance > <strong>1× ATR(D)</strong>\n\n<strong>Why required:</strong> trade horizon = your time availability today, not pure technical decision. Forces conscious commit before analysis.\n\n<strong>Не set:</strong> distance check disabled — system shows ⏸ pending state.";
       const atrTooltip1H = "<strong>ATR(14) @ 1H — for Intraday horizon</strong>\nValue of ATR(14) RMA on 1H timeframe. Read from Displacement Scanner table → HTF CONTEXT section → 'ATR 1H' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 hour\n\n<strong>Used in distance checks (Intraday horizon only):</strong>\n• <strong>O7.2:</strong> Barrier active if distance ≤ 2× ATR(1H)\n• <strong>H1.22:</strong> Target premature if distance > 4× ATR(1H)\n• <strong>H1.25:</strong> Post-sweep digestion if distance from swept extreme > 2× ATR(1H)\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
       const atrTooltipD = "<strong>ATR(14) @ 1D — for Swing horizon</strong>\nValue of ATR(14) RMA on Daily timeframe. Read from Displacement Scanner table → HTF CONTEXT section → 'ATR D' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 day\n\n<strong>Used in distance checks (Swing horizon only):</strong>\n• Barrier active if distance ≤ 1× ATR(D)\n• Target premature if distance > 2.5× ATR(D)\n• Post-sweep digestion if distance from swept extreme > 1× ATR(D)\n\n<em>Multipliers (2.5× / 1×) are starting calibration — validate after 10-20 swing setups.</em>\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
-      const waitTooltip = "<strong>Wait Mode override (H1.25 / H1.24 / O7.18)</strong>\nManual flag: setup структурно valid но resolution pending. Используй когда auto Mode не отражает реальность.\n\n<strong>Sub-types (H8.1: thresholds horizon-aware):</strong>\n• <strong>post-sweep digestion:</strong> sweep happened, цена сделала significant retreat от swept extreme (Intraday: > 2× ATR(1H); Swing: > 1× ATR(D)), waiting for re-test или decisive close\n• <strong>target premature:</strong> structurally valid setup но target слишком далеко (Intraday: > 4× ATR(1H); Swing: > 2.5× ATR(D)), watch for entry zone closer\n• <strong>htf pending (await LTF trigger) — O7.18 (2026-04-29):</strong> HTF context structurally valid (bias + targets + barriers OK), waiting for LTF trigger в Section 5 (BOS / Displacement / Sweep+retest) для commit к entry. Generic catch-all для \"setup готов, но input cue не пришёл yet\". Examples: multi-timeframe kinetic disagreement, news pending, structural break awaiting confirmation.\n\n<strong>Effect:</strong> Mode = Wait, conviction рассчитывается normally, journal records sub-type для analysis. Не блокирует setup — это discipline marker.\n\n<strong>O7.20 (2026-04-29):</strong> Wait Mode НЕ bypass'ит \"Too Many Risks\" blocker. При 3+ triggers status line дополнительно показывает <code>⛔Risks</code> badge — setup structurally blocked несмотря на Wait flag. Используй Wait для tracking discipline, не как override structural issues.\n\n<strong>(auto)</strong> = no override, system computes Mode normally.";
+      const waitTooltip = "<strong>Wait Mode override (H1.25 / H1.24 / O7.18 / H1.26)</strong>\nManual flag: setup структурно valid но resolution pending. Используй когда auto Mode не отражает реальность.\n\n<strong>Sub-types (H8.1: thresholds horizon-aware):</strong>\n• <strong>post-sweep digestion:</strong> sweep happened, цена сделала significant retreat от swept extreme (Intraday: > 2× ATR(1H); Swing: > 1× ATR(D)), waiting for re-test или decisive close\n• <strong>target premature:</strong> structurally valid setup но target слишком далеко (Intraday: > 4× ATR(1H); Swing: > 4× ATR(D)), watch for entry zone closer\n• <strong>inside barrier zone — H1.26 (2026-04-29):</strong> price находится внутри barrier zone (decision zone) — между upper/lower edges of HTF FVG/OB/Wick. Не trade сквозь barrier, а wait для break direction. Если break Up → Long bias, если break Down → Short bias. Manual selection — auto-detection requires barrier price input (not implemented yet).\n• <strong>htf pending (await LTF trigger) — O7.18 (2026-04-29):</strong> HTF context structurally valid (bias + targets + barriers OK), waiting for LTF trigger в Section 5 (BOS / Displacement / Sweep+retest) для commit к entry. Generic catch-all для \"setup готов, но input cue не пришёл yet\". Examples: multi-timeframe kinetic disagreement, news pending, structural break awaiting confirmation.\n\n<strong>Effect:</strong> Mode = Wait, conviction рассчитывается normally, journal records sub-type для analysis. Не блокирует setup — это discipline marker.\n\n<strong>O7.20 (2026-04-29):</strong> Wait Mode НЕ bypass'ит \"Too Many Risks\" blocker. При 3+ triggers status line дополнительно показывает <code>⛔Risks</code> badge — setup structurally blocked несмотря на Wait flag. Используй Wait для tracking discipline, не как override structural issues.\n\n<strong>(auto)</strong> = no override, system computes Mode normally.";
       const atrCurrent1H = (state.atr_1h !== undefined && state.atr_1h !== null) ? state.atr_1h : "";
       const atrCurrentD = (state.atr_d !== undefined && state.atr_d !== null) ? state.atr_d : "";
       const atrCurrentAsset = state.asset || "";
@@ -2152,6 +2228,7 @@ function render() {
       html += `<option value="" ${waitCurrent===""?"selected":""}>(auto)</option>`;
       html += `<option value="post_sweep_digestion" ${waitCurrent==="post_sweep_digestion"?"selected":""}>post-sweep digestion</option>`;
       html += `<option value="target_premature" ${waitCurrent==="target_premature"?"selected":""}>target premature</option>`;
+      html += `<option value="inside_barrier" ${waitCurrent==="inside_barrier"?"selected":""}>inside barrier zone</option>`;
       html += `<option value="htf_pending" ${waitCurrent==="htf_pending"?"selected":""}>htf pending (await LTF trigger)</option>`;
       html += `</select>`;
       if (waitCurrent) {
@@ -2434,7 +2511,7 @@ function render() {
     vEl.innerHTML = `<span class="verdict-label" style="color:var(--muted);font-weight:600;white-space:nowrap">⚪ ${filled}/${total}</span>`;
   }
 }
- 
+
 // Clear state for fields that become disabled based on Target Liq. + Mode
 function syncDisabledFields() {
   const draw = state.liq_draw;
@@ -2457,14 +2534,14 @@ function syncDisabledFields() {
     state.extreme = undefined;
   }
 }
- 
+
 function pick(id, val) {
   state[id] = state[id] === val ? undefined : val;
   syncDisabledFields();
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();
 }
- 
+
 function pickMulti(id, val) {
   const arr = Array.isArray(state[id]) ? state[id].slice() : [];
   const idx = arr.indexOf(val);
@@ -2474,7 +2551,7 @@ function pickMulti(id, val) {
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();
 }
- 
+
 function pickTop(id, val) {
   state[id] = state[id] === val ? undefined : val;
   // ATR per-asset auto-fill — when asset changes, load saved ATRs for new asset (H8.1: both 1H + D)
@@ -2499,7 +2576,7 @@ function pickTop(id, val) {
   // Re-render to pick up new ATR value in the input field
   if (id === "asset") render();
 }
- 
+
 // ATR(1H) input handler — saves per-asset, updates state, re-renders to update distance check displays
 function setATR1H(value) {
   if (value === "" || value === null || value === undefined) {
@@ -2521,7 +2598,7 @@ function setATR1H(value) {
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();
 }
- 
+
 // H8.1 (2026-04-28): ATR(D) input handler — parallel to setATR1H, saves per-asset
 function setATRD(value) {
   if (value === "" || value === null || value === undefined) {
@@ -2538,7 +2615,7 @@ function setATRD(value) {
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();
 }
- 
+
 // H8.1 (2026-04-28): Trade Horizon dropdown handler — sets horizon, persists, re-renders
 function setTradeHorizon(value) {
   if (value === "" || value === null || value === undefined) {
@@ -2549,7 +2626,7 @@ function setTradeHorizon(value) {
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();
 }
- 
+
 // O7.22 (2026-04-29): apply Section 3 cross-field suggest from Resolution
 function applySection3Suggest() {
   const sug = suggestSection3FromResolution();
@@ -2559,7 +2636,7 @@ function applySection3Suggest() {
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();
 }
- 
+
 // H1.25 / H1.24 (2026-04-27): Wait Mode override handler — sets sub-type or clears
 function setWaitSubType(value) {
   if (value === "" || value === null || value === undefined) {
@@ -2570,7 +2647,7 @@ function setWaitSubType(value) {
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();
 }
- 
+
 function renderTopPills() {
   ['asset','mode'].forEach(id => {
     document.querySelectorAll(`[id^="pill_${id}_"]`).forEach(b => { b.className = 'pill'; });
@@ -2593,11 +2670,14 @@ function renderTopPills() {
     customInput.style.fontWeight = isCustom ? "600" : "400";
   }
 }
- 
+
 // Custom asset setter (UX 2026-04-29) — replaces PEPE pill с free-text asset entry.
 // Asset is stored uppercased in state.asset. ATR + price loaders work для any asset symbol.
 // Notion select field "Asset" auto-creates new options when unknown value is sent.
-function setCustomAsset(rawValue) {
+// D5 validation (2026-04-29): isBlur flag controls visual feedback — silent during typing,
+// red outline on blur if invalid. Allows partial typing ("D" → "DO" → "DOG" → "DOGE")
+// without spurious error display.
+function setCustomAsset(rawValue, isBlur) {
   const val = (rawValue || "").trim().toUpperCase();
   const wasCustom = state.asset && !["BTC","ETH","SOL"].includes(state.asset);
   if (!val) {
@@ -2624,6 +2704,19 @@ function setCustomAsset(rawValue) {
     return;
   }
   // Custom asset
+  // D5 (2026-04-29): Sanity validation prevents typo propagation to Notion journal.
+  // Rules: 3-10 chars, alphanumeric only (no whitespace/symbols), already uppercased above.
+  if (val.length < 3 || val.length > 10 || !/^[A-Z0-9]+$/.test(val)) {
+    if (isBlur) {
+      const inputEl = document.getElementById('asset_custom');
+      if (inputEl) {
+        inputEl.style.outline = '2px solid var(--red, #dc2626)';
+        inputEl.title = 'Asset must be 3-10 uppercase alphanumeric chars';
+        setTimeout(() => { if (inputEl) { inputEl.style.outline = ''; inputEl.title = ''; } }, 2000);
+      }
+    }
+    return;
+  }
   if (state.asset !== val) {
     state.asset = val;
     loadATRForAsset(val);
@@ -2632,7 +2725,7 @@ function setCustomAsset(rawValue) {
     render();
   }
 }
- 
+
 function toggleDisp(id) {
   dispState[id] = !dispState[id];
   const all = Object.values(dispState).every(Boolean);
@@ -2642,20 +2735,20 @@ function toggleDisp(id) {
   localStorage.setItem('tc_disp', JSON.stringify(dispState));
   render();
 }
- 
+
 function toggleRules(key) { rulesOpen[key] = !rulesOpen[key]; render(); }
- 
+
 function togglePost() {
   postOpen = !postOpen;
   document.getElementById("postRules").style.display = postOpen ? "block" : "none";
   document.getElementById("postBtn").textContent = (postOpen ? "▼" : "▶") + " POST-ENTRY";
 }
- 
+
 function saveInput(el) {
   const k = el.id.replace('inp_','');
   localStorage.setItem('tc_'+k, el.value);
 }
- 
+
 function renderRR() {
   const entry = parseFloat(document.getElementById("inp_entry")?.value);
   const stop = parseFloat(document.getElementById("inp_stop")?.value);
@@ -2676,7 +2769,7 @@ function renderRR() {
   }
   localStorage.setItem('tc_rr', rrTexts.join(" / "));
 }
- 
+
 // ============================================
 // FILL TIMER (2026-04-29)
 // Tracks fill duration per setup. Starts on RESET, stops on TRADE or SKIP.
@@ -2687,19 +2780,19 @@ function renderRR() {
 let timerStartTime = null;
 let timerInterval = null;
 let lastFillDuration = null;  // Frozen display value after stop (null = nothing to show)
- 
+
 function formatDuration(seconds) {
   if (seconds < 0 || isNaN(seconds)) return "0:00";
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
 }
- 
+
 function getElapsedSeconds() {
   if (!timerStartTime) return 0;
   return Math.floor((Date.now() - timerStartTime) / 1000);
 }
- 
+
 function updateTimerDisplay() {
   const el = document.getElementById('fillTimer');
   if (!el) return;
@@ -2710,7 +2803,8 @@ function updateTimerDisplay() {
     el.style.display = 'inline';
   } else if (lastFillDuration !== null) {
     // Frozen display — last fill duration (после save/skip)
-    el.textContent = `⏱ ${formatDuration(lastFillDuration)} ✓`;
+    // No checkmark — color alone signals completion (saves horizontal space, prevents wrap)
+    el.textContent = `⏱ ${formatDuration(lastFillDuration)}`;
     el.style.color = 'var(--green-text)';
     el.style.display = 'inline';
   } else {
@@ -2719,7 +2813,7 @@ function updateTimerDisplay() {
     el.textContent = '';
   }
 }
- 
+
 function startTimer() {
   // Clear frozen display when starting new fill
   lastFillDuration = null;
@@ -2730,7 +2824,7 @@ function startTimer() {
   timerInterval = setInterval(updateTimerDisplay, 1000);
   updateTimerDisplay();
 }
- 
+
 // Stops timer и returns elapsed seconds (0 если не был запущен).
 // Display freezes showing the elapsed value до next RESET.
 function stopTimer() {
@@ -2748,7 +2842,7 @@ function stopTimer() {
   updateTimerDisplay();
   return elapsed;
 }
- 
+
 // Restore timer state on page reload (continues counting если был активен,
 // или показывает frozen last fill если был только-что closed).
 function restoreTimer() {
@@ -2772,7 +2866,7 @@ function restoreTimer() {
     }
   }
 }
- 
+
 function resetAll() {
   state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false};
   ['state','disp','risk','entry','stop','tp1','tp2','tp3','rr','notes','screenshot','account'].forEach(k => localStorage.removeItem('tc_'+k));
@@ -2783,7 +2877,7 @@ function resetAll() {
   renderTopPills();
   startTimer();
 }
- 
+
 function toggleSettings() {
   const p = document.getElementById("settingsPanel");
   p.style.display = p.style.display === "none" ? "block" : "none";
@@ -2805,7 +2899,7 @@ function isVerboseOn() {
   const v = localStorage.getItem("tc_verbose");
   return v === null ? true : v === "1";  // default ON
 }
- 
+
 const FIELD_MAP = {
   weekly_bias:["Weekly Bias",{Bullish:"Bullish",Bearish:"Bearish",Balanced:"Balanced"}],
   daily_bias:["Daily Bias",{Bullish:"Bullish",Bearish:"Bearish",Balanced:"Balanced"}],
@@ -2836,9 +2930,9 @@ const FIELD_MAP = {
   origin_dist:["",null],
   corrcheck:["",null]
 };
- 
+
 const DB_ID = "24933910ce304b65a1f50b137d7392ae";
- 
+
 function showStatus(msg, ok) {
   const el = document.getElementById("saveStatus");
   el.style.display = "block";
@@ -2846,7 +2940,7 @@ function showStatus(msg, ok) {
   el.textContent = msg;
   setTimeout(() => el.style.display = "none", 4000);
 }
- 
+
 async function skipToNotion() {
   const worker = localStorage.getItem("tc_worker");
   const token = localStorage.getItem("tc_token");
@@ -2862,7 +2956,7 @@ async function skipToNotion() {
   if (state.asset) props["Asset"] = state.asset;
   props["Skipped"] = true;
   // Skip Reason not set — field left empty in Notion
- 
+
   // Map checklist fields same as save
   for (const [k, [prop, map]] of Object.entries(FIELD_MAP)) {
     if (!map || !state[k]) continue;
@@ -2939,7 +3033,7 @@ async function skipToNotion() {
   if (notes) props["Notes"] = notes;
   const screenshot = document.getElementById("screenshot").value;
   if (screenshot) props["Screenshot"] = screenshot;
- 
+
   showStatus("⏳ Saving skip...", true);
   try {
     const resp = await fetch(worker, { method: "POST", headers: {"Content-Type":"application/json"},
@@ -2956,7 +3050,7 @@ async function saveToNotion() {
   const worker = localStorage.getItem("tc_worker");
   const token = localStorage.getItem("tc_token");
   if (!worker || !token) { toggleSettings(); showStatus("⚠️ Set Worker URL and Notion Token first", false); return; }
- 
+
   const props = {};
   // Title
   const asset = state.asset || "";
@@ -2969,14 +3063,14 @@ async function saveToNotion() {
   // Asset & Mode
   if (state.asset) props["Asset"] = state.asset;
   props["Mode"] = state.mode || "Live";
- 
+
   // Map selects
   for (const [k, [prop, map]] of Object.entries(FIELD_MAP)) {
     if (!prop || !state[k] || !map) continue;
     const mapped = map[state[k]];
     if (mapped) props[prop] = mapped;
   }
- 
+
   // Computed fields
   const ms = computeMarketState();
   if (ms) {
@@ -3036,7 +3130,7 @@ async function saveToNotion() {
   if (state.price_barrier_below   !== undefined) props["Barrier Below Price"]   = state.price_barrier_below;
   if (state.price_barrier_below_2 !== undefined) props["Barrier Below 2 Price"] = state.price_barrier_below_2;
   if (state.price_near_extreme    !== undefined) props["Near Extreme Price"]    = state.price_near_extreme;
- 
+
   // Numbers
   const numMap = {account:"Account $", risk:"Risk %", entry:"Entry Price", stop:"Stop Price", tp1:"TP1", tp2:"TP2", tp3:"TP3"};
   for (const [k, prop] of Object.entries(numMap)) {
@@ -3076,7 +3170,7 @@ async function saveToNotion() {
   if (notes) props["Notes"] = notes;
   const screenshot = document.getElementById("screenshot").value;
   if (screenshot) props["Screenshot"] = screenshot;
- 
+
   showStatus("⏳ Saving...", true);
   try {
     const resp = await fetch(worker, {
@@ -3095,7 +3189,7 @@ async function saveToNotion() {
     showStatus("❌ " + e.message, false);
   }
 }
- 
+
 // Load saved state
 try {
   const s = localStorage.getItem('tc_state');
@@ -3103,17 +3197,17 @@ try {
   const d = localStorage.getItem('tc_disp');
   if (d) dispState = JSON.parse(d);
 } catch(e) {}
- 
+
 // ATR(1H) per-asset load — if asset is selected, restore ATR for that asset
 // (state.atr_1h might be stale from different asset, override with per-asset value)
 if (state.asset) {
   loadATRForAsset(state.asset);
 }
- 
+
 // H9.1 (2026-04-29): Setup Geometry — load all 6 prices from sessionStorage on init
 // sessionStorage survives F5 but not tab close. If sessionStorage was cleared (new session) → all undefined.
 loadAllPrices();
- 
+
 // H1.19 — Clear persisted Notes on new tab/window session (per-setup intent).
 // sessionStorage persists across F5 refresh but not across tab close → Notes stays empty
 // when you open a fresh tab, but survives accidental page reload mid-setup.
@@ -3121,7 +3215,7 @@ if (!sessionStorage.getItem('tc_session_active')) {
   localStorage.removeItem('tc_notes');
   sessionStorage.setItem('tc_session_active', '1');
 }
- 
+
 render();
 renderTopPills();
 // Restore screenshot (notes is restored inside render() since it moved to HTF section)

@@ -2306,7 +2306,7 @@ function render() {
       let s8verdict = ""; let s8color = "var(--muted)";
       if (hasReversalNoExtreme) { s8verdict = "🔴 REVERSAL — SELECT EXTREME"; s8color = "var(--red)"; }
       else if (hasStop) { s8verdict = "🔴 NO TRADE"; s8color = "var(--red)"; }
-      else if (convTriggers >= 3) { s8verdict = "🔴 TOO MANY RISKS (-" + convTriggers + ")"; s8color = "var(--red)"; }
+      else if (convTriggers >= 3) { s8verdict = "🔴 RISKS (-" + convTriggers + ")"; s8color = "var(--red)"; }
       else if (state.confirm === "Not yet") { s8verdict = "🟡 WAIT CONFIRM"; s8color = "var(--yellow, #ca8a04)"; }
       else if (GROUPS.every(g => g.fields.every(f => f.optional || (f.id === "disp" ? state.disp : state[f.id])))) { s8verdict = "🟢 TRADE"; s8color = "var(--green)"; }
       else { s8verdict = "⚪ Fill all sections"; s8color = "var(--muted)"; }
@@ -2342,7 +2342,7 @@ function render() {
   const tooManyTriggers = convTrig >= 3;
   if (hasReversalNoExtreme) vEl.innerHTML = '<span class="verdict-label verdict-notrade">🔴 SELECT EXTREME</span>';
   else if (hasStop) vEl.innerHTML = '<span class="verdict-label verdict-notrade">🔴 NO TRADE</span>';
-  else if (tooManyTriggers) vEl.innerHTML = '<span class="verdict-label verdict-notrade">🔴 TOO MANY RISKS (-' + convTrig + ')</span>';
+  else if (tooManyTriggers) vEl.innerHTML = '<span class="verdict-label verdict-notrade" style="white-space:nowrap">🔴 RISKS (-' + convTrig + ')</span>';
   else if (notConfirmed) vEl.innerHTML = '<span class="verdict-label" style="color:var(--yellow,#ca8a04)">🟡 WAIT CONFIRM</span>';
   else if (allGroupsFilled) vEl.innerHTML = '<span class="verdict-label verdict-trade">🟢 TRADE</span>';
   else vEl.innerHTML = '';

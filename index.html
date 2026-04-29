@@ -96,6 +96,7 @@
     </span>
   </div>
   <div class="header-right">
+    <span id="fillTimer" style="display:none;font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;letter-spacing:0.04em;margin-right:4px"></span>
     <span id="verdict"></span>
     <button class="btn-reset" onclick="saveToNotion()" id="saveBtn" style="color:var(--green);border-color:var(--green)">💾 TRADE</button>
     <button class="btn-reset" onclick="skipToNotion()" style="color:var(--yellow,#ca8a04);border-color:var(--yellow,#ca8a04)">⏭ SKIP</button>
@@ -2583,9 +2584,9 @@ function renderTopPills() {
       customInput.value = isCustom ? state.asset : "";
     }
     customInput.style.borderColor = isCustom ? "var(--green)" : "var(--border,#ddd)";
-    customInput.style.background = isCustom ? "rgba(22,163,74,0.08)" : "var(--bg,#fff)";
-    customInput.style.color = isCustom ? "var(--green)" : "inherit";
-    customInput.style.fontWeight = isCustom ? "700" : "400";
+    customInput.style.background = isCustom ? "var(--green-bg)" : "var(--input-bg)";
+    customInput.style.color = isCustom ? "var(--green-text)" : "var(--fg)";
+    customInput.style.fontWeight = isCustom ? "600" : "400";
   }
 }
  
@@ -2672,6 +2673,74 @@ function renderRR() {
   localStorage.setItem('tc_rr', rrTexts.join(" / "));
 }
  
+// ============================================
+// FILL TIMER (2026-04-29)
+// Tracks fill duration per setup. Starts on RESET, stops on TRADE or SKIP.
+// Records elapsed seconds в Notes metaLines + sessionStorage persistence.
+// Goal: measurable metric для tracking automaticity formation through milestones.
+// ============================================
+let timerStartTime = null;
+let timerInterval = null;
+ 
+function formatDuration(seconds) {
+  if (seconds < 0 || isNaN(seconds)) return "0:00";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+ 
+function getElapsedSeconds() {
+  if (!timerStartTime) return 0;
+  return Math.floor((Date.now() - timerStartTime) / 1000);
+}
+ 
+function updateTimerDisplay() {
+  const el = document.getElementById('fillTimer');
+  if (!el) return;
+  if (timerStartTime) {
+    el.textContent = `⏱ ${formatDuration(getElapsedSeconds())}`;
+    el.style.display = 'inline';
+  } else {
+    el.style.display = 'none';
+    el.textContent = '';
+  }
+}
+ 
+function startTimer() {
+  timerStartTime = Date.now();
+  localStorage.setItem('tc_timer_start', String(timerStartTime));
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(updateTimerDisplay, 1000);
+  updateTimerDisplay();
+}
+ 
+// Stops timer и returns elapsed seconds (0 если не был запущен)
+function stopTimer() {
+  const elapsed = getElapsedSeconds();
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  timerStartTime = null;
+  localStorage.removeItem('tc_timer_start');
+  updateTimerDisplay();
+  return elapsed;
+}
+ 
+// Restore timer state on page reload (continues counting если был активен)
+function restoreTimer() {
+  const stored = localStorage.getItem('tc_timer_start');
+  if (stored) {
+    const parsed = parseInt(stored, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      timerStartTime = parsed;
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = setInterval(updateTimerDisplay, 1000);
+      updateTimerDisplay();
+    }
+  }
+}
+ 
 function resetAll() {
   state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false};
   ['state','disp','risk','entry','stop','tp1','tp2','tp3','rr','notes','screenshot','account'].forEach(k => localStorage.removeItem('tc_'+k));
@@ -2680,6 +2749,7 @@ function resetAll() {
   document.getElementById("screenshot").value = "";
   render();
   renderTopPills();
+  startTimer();
 }
  
 function toggleSettings() {
@@ -2815,6 +2885,8 @@ async function skipToNotion() {
   // H8.2 (2026-04-29): also append TP2 prices
   // H8.3 (2026-04-29): also append B2 barrier prices
   const metaLinesSkip = [];
+  const fillDurationSkip = stopTimer();
+  if (fillDurationSkip > 0) metaLinesSkip.push("Fill Duration: " + formatDuration(fillDurationSkip) + " (" + fillDurationSkip + "s)");
   if (state.trade_horizon) metaLinesSkip.push("Trade Horizon: " + state.trade_horizon);
   if (state.wait_sub_type) metaLinesSkip.push("Wait Sub-type: " + state.wait_sub_type);
   if (state.atr_1h && state.atr_1h > 0) metaLinesSkip.push("ATR(14) @ 1H: " + state.atr_1h);
@@ -2841,7 +2913,10 @@ async function skipToNotion() {
     const resp = await fetch(worker, { method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ token, database_id: DB_ID, properties: props }) });
     const data = await resp.json();
-    if (data.id || data.url) { showStatus("⏭ Skipped trade saved", true); }
+    if (data.id || data.url) { 
+      const durMsg = fillDurationSkip > 0 ? " (filled in " + formatDuration(fillDurationSkip) + ")" : "";
+      showStatus("⏭ Skipped trade saved" + durMsg, true); 
+    }
     else { showStatus("❌ Error: " + (data.message || JSON.stringify(data)), false); }
   } catch(e) { showStatus("❌ " + e.message, false); }
 }
@@ -2947,6 +3022,8 @@ async function saveToNotion() {
   // H8.2 (2026-04-29): also append TP2 prices
   // H8.3 (2026-04-29): also append B2 barrier prices
   const metaLines = [];
+  const fillDuration = stopTimer();
+  if (fillDuration > 0)              metaLines.push("Fill Duration: " + formatDuration(fillDuration) + " (" + fillDuration + "s)");
   if (state.trade_horizon)            metaLines.push("Trade Horizon: " + state.trade_horizon);
   if (state.wait_sub_type)            metaLines.push("Wait Sub-type: " + state.wait_sub_type);
   if (state.atr_1h && state.atr_1h > 0) metaLines.push("ATR(14) @ 1H: " + state.atr_1h);
@@ -2977,7 +3054,8 @@ async function saveToNotion() {
     });
     const data = await resp.json();
     if (data.id || data.url) {
-      showStatus("✅ Saved to Journal: " + (data.url || data.id), true);
+      const durMsg = fillDuration > 0 ? " (filled in " + formatDuration(fillDuration) + ")" : "";
+      showStatus("✅ Saved to Journal" + durMsg + ": " + (data.url || data.id), true);
     } else {
       showStatus("❌ Error: " + (data.message || JSON.stringify(data)), false);
     }
@@ -3017,6 +3095,8 @@ renderTopPills();
 // Restore screenshot (notes is restored inside render() since it moved to HTF section)
 if (localStorage.getItem('tc_screenshot')) document.getElementById('screenshot').value = localStorage.getItem('tc_screenshot');
 renderRR();
+// Restore fill timer if was running (continues across F5 refresh)
+restoreTimer();
 </script>
 </body>
 </html>

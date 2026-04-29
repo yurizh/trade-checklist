@@ -566,6 +566,48 @@ function suggestTradeHorizon() {
   };
 }
  
+// O7.22 (2026-04-29): Cross-field suggest — when squeeze active + Resolution selected,
+// suggest matching Section 3 OI 15M values (price 30-60m + OI 30-60m).
+// Reduces friction где same observation captured in both fields.
+// Returns: { oi15_oi: "Growth"|"Flat"|"Spike"|null, oi15_price: "Rising"|"Falling"|"Flat"|null, reason: string } | null
+function suggestSection3FromResolution() {
+  const ms = computeMarketState();
+  const isSqueeze = ms === "L.Squeeze⛔" || ms === "S.Squeeze⛔";
+  if (!isSqueeze) return null;
+  const res = state.sqzresol;
+  if (!res || res === "No Resolution 60-90m⛔") return null;
+  // Only suggest if at least one Section 3 field empty
+  const oiEmpty = !state.oi15_oi;
+  const priceEmpty = !state.oi15_price;
+  if (!oiEmpty && !priceEmpty) return null;
+  
+  let oi15_oi = null;
+  let oi15_price = null;
+  let reason = "";
+  
+  if (res === "OI Stabilized 30-60m") {
+    oi15_oi = "Flat";
+    reason = "Resolution = OI Stabilized → OI 30-60m typically Flat";
+  } else if (res === "New OI Build & Price Hold") {
+    oi15_oi = "Growth";
+    // S.Squeeze recovery in bullish trend: shorts done covering, fresh longs entering, price up
+    // L.Squeeze recovery in bearish trend: longs done flushing, fresh shorts entering, price down
+    if (ms === "S.Squeeze⛔") oi15_price = "Rising";
+    else if (ms === "L.Squeeze⛔") oi15_price = "Falling";
+    reason = `Resolution = OI Build + Direction Conf → OI Growth + Price ${oi15_price === "Rising" ? "Rising" : "Falling"} (${ms.replace("⛔","")} recovery)`;
+  } else if (res === "HTF Sweep") {
+    // HTF Sweep is too varied to map confidently. Skip suggest.
+    return null;
+  }
+  
+  // Filter out non-empty fields (don't override what's already set)
+  const filteredOi = oiEmpty ? oi15_oi : null;
+  const filteredPrice = priceEmpty ? oi15_price : null;
+  if (!filteredOi && !filteredPrice) return null;
+  
+  return { oi15_oi: filteredOi, oi15_price: filteredPrice, reason };
+}
+ 
 // H8.2: Path-aware barrier check.
 // For each target on the same side, determine if barrier sits in path between current + target.
 // H8.3 (2026-04-29): Multi-barrier support — checks all barriers on side, returns per-barrier path analysis.
@@ -2218,6 +2260,17 @@ function render() {
       html += `</div>`;
     }
     if (g.key === "oi") {
+      // O7.22 (2026-04-29): Cross-field suggest banner — Section 3 ↔ Resolution overlap when squeeze active
+      const s3sug = suggestSection3FromResolution();
+      if (s3sug) {
+        html += `<div style="margin:6px 0;padding:6px 8px;background:rgba(139,92,246,0.08);border-left:2px solid #8b5cf6;font-size:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">`;
+        const parts = [];
+        if (s3sug.oi15_oi) parts.push(`OI 30-60m = <b>${s3sug.oi15_oi}</b>`);
+        if (s3sug.oi15_price) parts.push(`Price 30-60m = <b>${s3sug.oi15_price}</b>`);
+        html += `<span style="color:#8b5cf6"><b>💡 O7.22:</b> ${s3sug.reason}</span>`;
+        html += `<button onclick="applySection3Suggest()" style="font-size:10px;padding:1px 6px;border:1px solid #8b5cf6;background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:3px;cursor:pointer;font-weight:600">Apply ${parts.length > 1 ? "both" : ""}</button>`;
+        html += `</div>`;
+      }
       const oi15 = computeOI15M();
       const oi15Color = (oi15 && oi15.includes("✅")) ? "var(--green)" : (oi15 && oi15.includes("↓")) ? "var(--yellow, #ca8a04)" : (oi15 && oi15.includes("⛔")) ? "var(--red)" : "var(--muted)";
       html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
@@ -2360,7 +2413,21 @@ function render() {
   else if (tooManyTriggers) vEl.innerHTML = '<span class="verdict-label verdict-notrade" style="white-space:nowrap">🔴 RISKS (-' + convTrig + ')</span>';
   else if (notConfirmed) vEl.innerHTML = '<span class="verdict-label" style="color:var(--yellow,#ca8a04)">🟡 WAIT CONFIRM</span>';
   else if (allGroupsFilled) vEl.innerHTML = '<span class="verdict-label verdict-trade">🟢 TRADE</span>';
-  else vEl.innerHTML = '';
+  else {
+    // UX 2026-04-29: show intermediate "INCOMPLETE" state with section count
+    // Previously was empty string → confusing (looked like system not working).
+    // Count required (non-optional) fields filled vs total.
+    let filled = 0, total = 0;
+    for (const g of GROUPS) {
+      for (const f of g.fields) {
+        if (f.optional) continue;
+        total++;
+        const ok = f.id === "disp" ? state.disp : state[f.id];
+        if (ok) filled++;
+      }
+    }
+    vEl.innerHTML = `<span class="verdict-label" style="color:var(--muted);font-weight:600">⚪ INCOMPLETE (${filled}/${total})</span>`;
+  }
 }
  
 // Clear state for fields that become disabled based on Target Liq. + Mode
@@ -2474,6 +2541,16 @@ function setTradeHorizon(value) {
   } else if (value === "Intraday" || value === "Swing") {
     state.trade_horizon = value;
   }
+  localStorage.setItem('tc_state', JSON.stringify(state));
+  render();
+}
+ 
+// O7.22 (2026-04-29): apply Section 3 cross-field suggest from Resolution
+function applySection3Suggest() {
+  const sug = suggestSection3FromResolution();
+  if (!sug) return;
+  if (sug.oi15_oi && !state.oi15_oi) state.oi15_oi = sug.oi15_oi;
+  if (sug.oi15_price && !state.oi15_price) state.oi15_price = sug.oi15_price;
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();
 }

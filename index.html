@@ -282,14 +282,16 @@ function distanceInAtr(price1, price2) {
  
 // H9.1 (2026-04-29): Setup Geometry — price field helpers
 // H8.2 (2026-04-29): extended for tiered targets — target_above_2 / target_below_2 added
-// 8 fields total (current, TP1+TP2 above/below, barrier above/below, near extreme).
+// H8.3 (2026-04-29): extended for multi-barrier support — barrier_above_2 / barrier_below_2 added
+// 10 fields total (current, TP1+TP2 above/below, B1+B2 barrier above/below, near extreme).
 // Persistence: sessionStorage (ephemeral, survives F5 but cleared on tab close + asset change).
 // Per-asset: prices change with asset — clear all on asset switch (kept simple).
 const H9_PRICE_FIELDS = [
   "current",
   "target_above", "target_above_2",
   "target_below", "target_below_2",
-  "barrier_above", "barrier_below",
+  "barrier_above", "barrier_above_2",
+  "barrier_below", "barrier_below_2",
   "near_extreme"
 ];
 function loadAllPrices() {
@@ -409,13 +411,35 @@ function shouldSuggestPostSweepDigestion() {
  
 // H9.1: Auto-action — should mark barrier as inactive (out of horizon range)?
 // Fires when barrier price set + distance > horizon's barrier multiplier
-function isBarrierOutOfRange(side) {
+// H8.3 (2026-04-29): supports barrier_above/barrier_below_2 — accepts barrier index
+function isBarrierOutOfRange(side, idx) {
   const m = activeMultipliers();
   if (!m) return false;
-  const field = side === "above" ? "barrier_above" : "barrier_below";
+  const suffix = idx === 2 ? "_2" : "";
+  const field = side === "above" ? "barrier_above" + suffix : "barrier_below" + suffix;
   const check = priceDistanceCheck(field);
   if (!check.valid) return false;
   return check.ratio > m.barrier;
+}
+ 
+// H8.3: Get all selected barriers on a side с their prices
+// Returns array: [ { field, price, label } ] для barriers that have prices set
+function barriersAnalysis(side) {
+  const fields = side === "above"
+    ? ["barrier_above", "barrier_above_2"]
+    : ["barrier_below", "barrier_below_2"];
+  const out = [];
+  fields.forEach((field, idx) => {
+    const price = state["price_" + field];
+    if (price === undefined) return;
+    out.push({
+      field,
+      price,
+      label: idx === 0 ? "B1" : "B2",
+      idx: idx + 1
+    });
+  });
+  return out;
 }
  
 // H8.2 (2026-04-29): Detect native horizon for a single target price.
@@ -469,34 +493,95 @@ function targetsAnalysis(side) {
   return out;
 }
  
+// H8.4 (2026-04-29): Auto-suggest Trade Horizon based on target geometry.
+// Analyzes all selected targets (above + below sides), determines which horizon makes sense.
+// Logic:
+// - All targets reachable on Intraday (or Both) → suggest "Intraday" (tighter risk)
+// - Any target requires Swing → suggest "Swing" (max hold willingness for the trade)
+// - All targets OutOfRange → no suggest, recommend Wait Mode
+// Returns: { horizon: "Intraday" | "Swing" | null, reason: string, allOutOfRange: bool } | null
+function suggestTradeHorizon() {
+  // Only suggest if user hasn't picked horizon yet AND has both ATRs to evaluate against
+  if (state.trade_horizon) return null;
+  if (!state.atr_1h && !state.atr_d) return null;
+  if (state.price_current === undefined) return null;
+  
+  const aboveTargets = targetsAnalysis("above");
+  const belowTargets = targetsAnalysis("below");
+  const allTargets = [...aboveTargets, ...belowTargets];
+  if (allTargets.length === 0) return null;
+  
+  // Collect native horizons of all targets с filled prices
+  const natives = allTargets.map(t => t.native).filter(n => n !== null);
+  if (natives.length === 0) return null;
+  
+  const allOutOfRange = natives.every(n => n === "OutOfRange");
+  if (allOutOfRange) {
+    return {
+      horizon: null,
+      allOutOfRange: true,
+      reason: "all targets exceed even Swing horizon threshold — consider Wait Mode = target_premature"
+    };
+  }
+  
+  const requiresSwing = natives.some(n => n === "Swing");
+  if (requiresSwing) {
+    return {
+      horizon: "Swing",
+      allOutOfRange: false,
+      reason: "at least one target requires Swing horizon (Trade Horizon = max hold willingness)"
+    };
+  }
+  
+  // All targets either Intraday or Both → Intraday is tighter risk choice
+  const allBoth = natives.every(n => n === "Both");
+  if (allBoth) {
+    return {
+      horizon: "Intraday",
+      allOutOfRange: false,
+      reason: "all targets reachable on both horizons — Intraday gives tighter risk"
+    };
+  }
+  
+  return {
+    horizon: "Intraday",
+    allOutOfRange: false,
+    reason: "all targets Intraday-reachable"
+  };
+}
+ 
 // H8.2: Path-aware barrier check.
 // For each target on the same side, determine if barrier sits in path between current + target.
-// Returns: { activeForTargets: [labels of targets where barrier blocks], outOfRange: bool, anyActive: bool }
+// H8.3 (2026-04-29): Multi-barrier support — checks all barriers on side, returns per-barrier path analysis.
+// Returns: { barriers: [{ label, price, outOfRange, activeForTargets:[labels], inactive }], targets: [labels] }
 function barrierPathAware(side) {
-  const barrierField = side === "above" ? "barrier_above" : "barrier_below";
-  const barrier = state["price_" + barrierField];
   const cur = state.price_current;
-  if (barrier === undefined || cur === undefined) {
-    return { activeForTargets: [], outOfRange: false, anyActive: false, present: false };
+  const barriers = barriersAnalysis(side);
+  if (barriers.length === 0 || cur === undefined) {
+    return { barriers: [], targets: [], present: false };
   }
-  const outOfRange = isBarrierOutOfRange(side);
   const targets = targetsAnalysis(side);
-  const activeForTargets = [];
-  targets.forEach(t => {
-    // Above: barrier in path if cur < barrier < target
-    // Below: barrier in path if cur > barrier > target
-    let inPath = false;
-    if (side === "above") inPath = barrier > cur && barrier < t.price;
-    else inPath = barrier < cur && barrier > t.price;
-    if (inPath) activeForTargets.push(t.label);
+  const targetLabels = targets.map(t => t.label);
+  const result = barriers.map(b => {
+    const outOfRange = isBarrierOutOfRange(side, b.idx);
+    const activeForTargets = [];
+    targets.forEach(t => {
+      // Above: barrier in path if cur < barrier < target
+      // Below: barrier in path if cur > barrier > target
+      let inPath = false;
+      if (side === "above") inPath = b.price > cur && b.price < t.price;
+      else inPath = b.price < cur && b.price > t.price;
+      if (inPath) activeForTargets.push(t.label);
+    });
+    return {
+      label: b.label,
+      price: b.price,
+      outOfRange,
+      activeForTargets,
+      inactive: outOfRange || activeForTargets.length === 0
+    };
   });
-  return {
-    activeForTargets,
-    outOfRange,
-    anyActive: activeForTargets.length > 0 && !outOfRange,
-    present: true,
-    targets: targets.map(t => t.label)
-  };
+  return { barriers: result, targets: targetLabels, present: true };
 }
  
 function computeTradeCall() {
@@ -723,8 +808,17 @@ function computeConviction() {
   
   // Market State triggers
   const ms = computeMarketState();
-  if (ms === "L.Squeeze⛔") triggers++;
-  if (ms === "S.Squeeze⛔") triggers++;
+  // H2.14 Axis 1 (2026-04-29): Resolution-aware squeeze penalty.
+  // Squeeze trigger fires only if NO resolution selected. Resolution = trader observation that transition complete.
+  // - "OI Stabilized 30-60m" / "New OI Build & Price Hold" / "HTF Sweep" → resolved → no penalty
+  // - "No Resolution 60-90m⛔" → already separate Mode=No Trade blocker (handled in computeMode)
+  // - (none selected) → squeeze still active, -1 trigger applies (current behavior preserved)
+  // Axis 2 (direction-aware Reversal exemption) deferred — track 5+ Reversal-at-extreme setups first.
+  const sqzResolved = state.sqzresol === "OI Stabilized 30-60m"
+                   || state.sqzresol === "New OI Build & Price Hold"
+                   || state.sqzresol === "HTF Sweep";
+  if (ms === "L.Squeeze⛔" && !sqzResolved) triggers++;
+  if (ms === "S.Squeeze⛔" && !sqzResolved) triggers++;
   if (ms === "Flat⛔") triggers++;
   
   // OI triggers
@@ -900,7 +994,10 @@ function computeMode() {
   const session = state.session;
   const sqzResol = state.sqzresol;
   
-  if (!regime) return null;
+  // STRUCTURAL OVERRIDES — work even без Regime (Bug fix 2026-04-29)
+  // These determine Mode independently of Regime selection — don't gate them on Regime requirement.
+  // Without this fix, selecting Recently Swept BEFORE Regime would not enable HTF Extreme dropdown
+  // because computeMode() returned null → syncDisabledFields() saw m !== "Reversal" → disabled extreme.
   
   // Liquidity Phase = Transition → No Trade (highest priority — structural blocker)
   if (phase === "Transition⛔") return "No Trade";
@@ -908,9 +1005,14 @@ function computeMode() {
   // H1.25 / H1.24 (2026-04-27): Wait Mode override (manual flag).
   // When trader sets state.wait_sub_type — Mode becomes "Wait".
   // Sub-type tracked для journal/analysis.
-  // Position: AFTER Transition blocker (No Trade wins), BEFORE other Mode logic
-  // (Wait represents trader's manual decision that auto Mode не отражает реальность).
   if (state.wait_sub_type) return "Wait";
+  
+  // Recently Swept = Above/Below → Reversal Mode (structural — sweep happened, expect reversal play)
+  // Moved BEFORE Regime requirement so HTF Extreme dropdown enables immediately on Swept selection.
+  if (swept === "Above" || swept === "Below") return "Reversal";
+  
+  // Beyond this point — Regime required для conviction-based Mode resolution
+  if (!regime) return null;
   
   // Squeeze with resolution overrides
   if ((mktState === "L.Squeeze⛔" || mktState === "S.Squeeze⛔") && sqzResol) {
@@ -925,7 +1027,6 @@ function computeMode() {
   // Standard overrides
   if (regimeStrength(regime) === "Neutral") return "Reversal";
   if (session === "Sweep") return "Reversal";
-  if (swept === "Above" || swept === "Below") return "Reversal";
   if (computeOI15M() === "Flat↓") return "Reversal";
   
   return "Continuation";
@@ -1029,6 +1130,7 @@ function buildHTFStatusInline() {
   const waitLabel = (sub) => {
     if (sub === "post_sweep_digestion") return "Wait (post-sweep digestion)";
     if (sub === "target_premature") return "Wait (target premature)";
+    if (sub === "htf_pending") return "Wait (htf pending)";
     return "Wait";
   };
   if (phase === "Transition⛔") { localMode = "No Trade"; lmColor = "var(--red)"; }
@@ -1223,8 +1325,20 @@ function renderVerboseHTF() {
   else if (regStr === "Trend 3/3") triggerLines.push({status:"pass", label:"Regime = Trend", note:"no Mod trigger"});
   else if (regStr === "Neutral") triggerLines.push({status:"applied", label:"Neutral", note:"forces Reversal mode"});
   // Market State triggers
+  // H2.14 Axis 1 (2026-04-29): squeeze trigger suppressed if resolution selected (transition complete).
   const ms = computeMarketState();
-  if (ms === "L.Squeeze⛔" || ms === "S.Squeeze⛔" || ms === "Flat⛔") triggerLines.push({status:"applied", label:ms, note:"Market State trigger"});
+  const sqzResolvedDisplay = state.sqzresol === "OI Stabilized 30-60m"
+                          || state.sqzresol === "New OI Build & Price Hold"
+                          || state.sqzresol === "HTF Sweep";
+  if (ms === "L.Squeeze⛔" || ms === "S.Squeeze⛔") {
+    if (sqzResolvedDisplay) {
+      triggerLines.push({status:"pass", label:ms, note:`resolved (${state.sqzresol}) → no penalty (H2.14)`});
+    } else {
+      triggerLines.push({status:"applied", label:ms, note:"Market State trigger"});
+    }
+  } else if (ms === "Flat⛔") {
+    triggerLines.push({status:"applied", label:ms, note:"Market State trigger"});
+  }
   // OI triggers
   const oi15 = computeOI15M();
   if (oi15 && oi15.includes("⛔")) triggerLines.push({status:"applied", label:"OI "+oi15, note:"OI stop"});
@@ -1289,6 +1403,7 @@ function renderVerboseHTF() {
   const waitDisplay = (sub) => {
     if (sub === "post_sweep_digestion") return "Wait — post-sweep digestion";
     if (sub === "target_premature") return "Wait — target premature";
+    if (sub === "htf_pending") return "Wait — htf pending (await LTF trigger)";
     return "Wait";
   };
   const waitResolution = (sub) => {
@@ -1299,6 +1414,7 @@ function renderVerboseHTF() {
       if (m) return `watch for entry zone closer (target should be ≤ ${m.target}× ${atrLbl} from current price)`;
       return "watch for entry zone closer (target should be reachable from current price)";
     }
+    if (sub === "htf_pending") return "watch Section 5 (Entry Trigger) — BOS / Displacement / Sweep+retest на LTF подтверждает HTF setup";
     return "watch for resolution";
   };
   const modeDisplay = mode === "Wait" ? waitDisplay(S.wait_sub_type) : (mode || "—");
@@ -1385,7 +1501,32 @@ function renderVerboseHTF() {
     out += `</div>`;
     out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px;font-size:10px">`;
     if (!activeATR()) {
-      out += `<span style="color:var(--yellow, #ca8a04)">⏸</span> Pick horizon + fill ATR для compute distances<br>`;
+      // H8.4 (2026-04-29): If both ATRs available — show native horizon analysis even before horizon picked.
+      // Helps user see which horizon makes sense from target geometry.
+      if (state.atr_1h && state.atr_d && state.price_current !== undefined) {
+        const aboveTs = targetsAnalysis("above");
+        const belowTs = targetsAnalysis("below");
+        const allTs = [...aboveTs, ...belowTs];
+        if (allTs.length > 0) {
+          out += `<span style="color:var(--yellow, #ca8a04)">⏸</span> Pick horizon для compute active distances. Native horizon classification (H8.4):<br>`;
+          allTs.forEach(t => {
+            const arrow = t.field.includes("above") ? "↑" : "↓";
+            const nativeColor = t.native === "Both" ? "var(--green)"
+                              : t.native === "Intraday" ? "#3b82f6"
+                              : t.native === "Swing" ? "#8b5cf6"
+                              : t.native === "OutOfRange" ? "var(--red)"
+                              : "var(--muted)";
+            const ratioStr = (t.ratio_1h !== null && t.ratio_d !== null)
+              ? ` (${t.ratio_1h.toFixed(1)}× 1H | ${t.ratio_d.toFixed(2)}× D)`
+              : "";
+            out += `<span style="color:var(--muted)">  ·</span> ${t.label}${arrow} @ ${t.price}${ratioStr} | native: <span style="color:${nativeColor}">${t.native}</span><br>`;
+          });
+        } else {
+          out += `<span style="color:var(--yellow, #ca8a04)">⏸</span> Pick horizon + fill targets для compute distances<br>`;
+        }
+      } else {
+        out += `<span style="color:var(--yellow, #ca8a04)">⏸</span> Pick horizon + fill ATR для compute distances<br>`;
+      }
     } else {
       // H8.2: render targets with horizon annotation
       const renderTargetsForSide = (side) => {
@@ -1423,41 +1564,44 @@ function renderVerboseHTF() {
       out += renderTargetsForSide("above");
       out += renderTargetsForSide("below");
  
-      // H8.2: barriers — path-aware display
-      const renderBarrierForSide = (side) => {
-        const field = side === "above" ? "barrier_above" : "barrier_below";
-        const price = state["price_" + field];
-        if (price === undefined) return "";
-        const c = priceDistanceCheck(field);
-        if (!c.valid) return "";
-        const m = activeMultipliers();
+      // H8.2 + H8.3: barriers — path-aware display per barrier
+      const renderBarriersForSide = (side) => {
         const pa = barrierPathAware(side);
+        if (!pa.present || pa.barriers.length === 0) return "";
         const arrow = side === "above" ? "↑" : "↓";
-        let badge = "";
-        let badgeColor = "var(--muted)";
-        if (c.ratio > m.barrier) {
-          badge = " ⊘ inactive (out of range)";
-          badgeColor = "var(--muted)";
-        } else if (pa.targets.length > 0) {
-          // H8.2 path-aware: show which targets blocked
-          if (pa.activeForTargets.length === 0) {
-            badge = " ✓ bypass (not in any target path)";
-            badgeColor = "var(--green)";
-          } else if (pa.activeForTargets.length === pa.targets.length) {
-            badge = " ⚠ active (blocks all targets)";
-            badgeColor = "var(--yellow, #ca8a04)";
+        const m = activeMultipliers();
+        let out = "";
+        pa.barriers.forEach(b => {
+          const c = priceDistanceCheck(b.field || (side === "above" ? "barrier_above" + (b.label === "B2" ? "_2" : "") : "barrier_below" + (b.label === "B2" ? "_2" : "")));
+          if (!c.valid) return;
+          let badge = "";
+          let badgeColor = "var(--muted)";
+          if (b.outOfRange) {
+            badge = " ⊘ inactive (out of range)";
+            badgeColor = "var(--muted)";
+          } else if (pa.targets.length > 0) {
+            if (b.activeForTargets.length === 0) {
+              badge = " ✓ bypass (not in any target path)";
+              badgeColor = "var(--green)";
+            } else if (b.activeForTargets.length === pa.targets.length) {
+              badge = " ⚠ active (blocks all targets)";
+              badgeColor = "var(--yellow, #ca8a04)";
+            } else {
+              badge = ` ⚠ active for ${b.activeForTargets.join("+")} only`;
+              badgeColor = "var(--yellow, #ca8a04)";
+            }
           } else {
-            badge = ` ⚠ active for ${pa.activeForTargets.join("+")} only`;
+            badge = " ⚠ active";
             badgeColor = "var(--yellow, #ca8a04)";
           }
-        } else {
-          badge = " ⚠ active";
-          badgeColor = "var(--yellow, #ca8a04)";
-        }
-        return `<span style="color:var(--muted)">  ·</span> Barrier${arrow} @ ${price}: ${c.ratio.toFixed(2)}× ${c.atrLabel}<span style="color:${badgeColor}">${badge}</span><br>`;
+          // Show B1/B2 prefix only when 2 barriers present
+          const labelPrefix = pa.barriers.length > 1 ? `${b.label}${arrow}` : `Barrier${arrow}`;
+          out += `<span style="color:var(--muted)">  ·</span> ${labelPrefix} @ ${b.price}: ${c.ratio.toFixed(2)}× ${c.atrLabel}<span style="color:${badgeColor}">${badge}</span><br>`;
+        });
+        return out;
       };
-      out += renderBarrierForSide("above");
-      out += renderBarrierForSide("below");
+      out += renderBarriersForSide("above");
+      out += renderBarriersForSide("below");
  
       // Near extreme (unchanged from H9.1)
       if (state.price_near_extreme !== undefined) {
@@ -1472,8 +1616,19 @@ function renderVerboseHTF() {
       }
     }
     out += `</div>`;
-    // Auto-suggest banners (O7.17 + H1.25 automation via H9.1)
+    // Auto-suggest banners (O7.17 + H1.25 automation via H9.1; H8.4 horizon suggest 2026-04-29)
     if (!state.wait_sub_type) {
+      // H8.4: Suggest Trade Horizon based on target geometry (only fires if horizon NOT yet picked)
+      const hzSuggest = suggestTradeHorizon();
+      if (hzSuggest) {
+        out += `<div style="margin:6px 0;padding:6px 8px;background:rgba(139,92,246,0.08);border-left:2px solid #8b5cf6;font-size:10px">`;
+        if (hzSuggest.allOutOfRange) {
+          out += `<span style="color:#8b5cf6;font-weight:600">💡 H8.4 suggestion:</span> ${hzSuggest.reason}`;
+        } else {
+          out += `<span style="color:#8b5cf6;font-weight:600">💡 H8.4 suggestion:</span> ${hzSuggest.reason} → consider Trade Horizon = <b>${hzSuggest.horizon}</b>`;
+        }
+        out += `</div>`;
+      }
       const tp = shouldSuggestTargetPremature();
       if (tp) {
         out += `<div style="margin:6px 0;padding:6px 8px;background:rgba(202,138,4,0.08);border-left:2px solid var(--yellow, #ca8a04);font-size:10px">`;
@@ -1627,8 +1782,10 @@ function render() {
       const mode = computeMode();
       const isFieldDisabled = (fid) => {
         // H1.25/H1.24 (2026-04-27): extreme available в Wait Mode тоже (не только Reversal)
-        // post_sweep_digestion typically references swept extreme — keep accessible
-        if (fid === "extreme") return (mode !== "Reversal" && mode !== "Wait");
+        // BUG-FIX 2026-04-29: removed mode-based disable for extreme — eliminates ordering dependency
+        // (Recently Swept selected before Regime → Mode null → Extreme blocked).
+        // Required-for-Reversal semantic still enforced through computeMode blocker logic.
+        // if (fid === "extreme") return (mode !== "Reversal" && mode !== "Wait");  // OLD
         if (fid === "draw_level_above") return (state.liq_draw !== "Above" && state.liq_draw !== "Both");
         if (fid === "draw_level_below") return (state.liq_draw !== "Below" && state.liq_draw !== "Both");
         if (fid === "barrier_above") return (state.liq_draw === "Below");
@@ -1699,7 +1856,7 @@ function render() {
       const horizonTooltip = "<strong>Trade Horizon (H8.1) — REQUIRED</strong>\nDeclares intended trade timeframe. Determines which ATR field used for distance check.\n\n<strong>Intraday:</strong> hours — same session entry/exit. Distance check uses <strong>ATR(14) @ 1H</strong>.\n• target premature if distance > <strong>4× ATR(1H)</strong>\n• barrier active if distance ≤ <strong>2× ATR(1H)</strong>\n• post-sweep digestion if distance > <strong>2× ATR(1H)</strong>\n\n<strong>Swing:</strong> 2-7 days — multi-session hold. Distance check uses <strong>ATR(14) @ 1D</strong>.\n• target premature if distance > <strong>2.5× ATR(D)</strong>\n• barrier active if distance ≤ <strong>1× ATR(D)</strong>\n• post-sweep digestion if distance > <strong>1× ATR(D)</strong>\n\n<strong>Why required:</strong> trade horizon = your time availability today, not pure technical decision. Forces conscious commit before analysis.\n\n<strong>Не set:</strong> distance check disabled — system shows ⏸ pending state.";
       const atrTooltip1H = "<strong>ATR(14) @ 1H — for Intraday horizon</strong>\nValue of ATR(14) RMA on 1H timeframe. Read from Displacement Scanner table → HTF CONTEXT section → 'ATR 1H' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 hour\n\n<strong>Used in distance checks (Intraday horizon only):</strong>\n• <strong>O7.2:</strong> Barrier active if distance ≤ 2× ATR(1H)\n• <strong>H1.22:</strong> Target premature if distance > 4× ATR(1H)\n• <strong>H1.25:</strong> Post-sweep digestion if distance from swept extreme > 2× ATR(1H)\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
       const atrTooltipD = "<strong>ATR(14) @ 1D — for Swing horizon</strong>\nValue of ATR(14) RMA on Daily timeframe. Read from Displacement Scanner table → HTF CONTEXT section → 'ATR D' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 day\n\n<strong>Used in distance checks (Swing horizon only):</strong>\n• Barrier active if distance ≤ 1× ATR(D)\n• Target premature if distance > 2.5× ATR(D)\n• Post-sweep digestion if distance from swept extreme > 1× ATR(D)\n\n<em>Multipliers (2.5× / 1×) are starting calibration — validate after 10-20 swing setups.</em>\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
-      const waitTooltip = "<strong>Wait Mode override (H1.25 / H1.24)</strong>\nManual flag: setup структурно valid но resolution pending. Используй когда auto Mode не отражает реальность.\n\n<strong>Sub-types (H8.1: thresholds horizon-aware):</strong>\n• <strong>post-sweep digestion:</strong> sweep happened, цена сделала significant retreat от swept extreme (Intraday: > 2× ATR(1H); Swing: > 1× ATR(D)), waiting for re-test или decisive close\n• <strong>target premature:</strong> structurally valid setup но target слишком далеко (Intraday: > 4× ATR(1H); Swing: > 2.5× ATR(D)), watch for entry zone closer\n\n<strong>Effect:</strong> Mode = Wait, conviction рассчитывается normally, journal records sub-type для analysis. Не блокирует setup — это discipline marker.\n\n<strong>O7.20 (2026-04-29):</strong> Wait Mode НЕ bypass'ит \"Too Many Risks\" blocker. При 3+ triggers status line дополнительно показывает <code>⛔Risks</code> badge — setup structurally blocked несмотря на Wait flag. Используй Wait для tracking discipline, не как override structural issues.\n\n<strong>(auto)</strong> = no override, system computes Mode normally.";
+      const waitTooltip = "<strong>Wait Mode override (H1.25 / H1.24 / O7.18)</strong>\nManual flag: setup структурно valid но resolution pending. Используй когда auto Mode не отражает реальность.\n\n<strong>Sub-types (H8.1: thresholds horizon-aware):</strong>\n• <strong>post-sweep digestion:</strong> sweep happened, цена сделала significant retreat от swept extreme (Intraday: > 2× ATR(1H); Swing: > 1× ATR(D)), waiting for re-test или decisive close\n• <strong>target premature:</strong> structurally valid setup но target слишком далеко (Intraday: > 4× ATR(1H); Swing: > 2.5× ATR(D)), watch for entry zone closer\n• <strong>htf pending (await LTF trigger) — O7.18 (2026-04-29):</strong> HTF context structurally valid (bias + targets + barriers OK), waiting for LTF trigger в Section 5 (BOS / Displacement / Sweep+retest) для commit к entry. Generic catch-all для \"setup готов, но input cue не пришёл yet\". Examples: multi-timeframe kinetic disagreement, news pending, structural break awaiting confirmation.\n\n<strong>Effect:</strong> Mode = Wait, conviction рассчитывается normally, journal records sub-type для analysis. Не блокирует setup — это discipline marker.\n\n<strong>O7.20 (2026-04-29):</strong> Wait Mode НЕ bypass'ит \"Too Many Risks\" blocker. При 3+ triggers status line дополнительно показывает <code>⛔Risks</code> badge — setup structurally blocked несмотря на Wait flag. Используй Wait для tracking discipline, не как override structural issues.\n\n<strong>(auto)</strong> = no override, system computes Mode normally.";
       const atrCurrent1H = (state.atr_1h !== undefined && state.atr_1h !== null) ? state.atr_1h : "";
       const atrCurrentD = (state.atr_d !== undefined && state.atr_d !== null) ? state.atr_d : "";
       const atrCurrentAsset = state.asset || "";
@@ -1750,6 +1907,7 @@ function render() {
       html += `<option value="" ${waitCurrent===""?"selected":""}>(auto)</option>`;
       html += `<option value="post_sweep_digestion" ${waitCurrent==="post_sweep_digestion"?"selected":""}>post-sweep digestion</option>`;
       html += `<option value="target_premature" ${waitCurrent==="target_premature"?"selected":""}>target premature</option>`;
+      html += `<option value="htf_pending" ${waitCurrent==="htf_pending"?"selected":""}>htf pending (await LTF trigger)</option>`;
       html += `</select>`;
       if (waitCurrent) {
         html += `<span style="font-size:10px;color:var(--yellow,#ca8a04);font-weight:600">⚠ Wait</span>`;
@@ -1821,8 +1979,12 @@ function render() {
       const mode = computeMode();
       let isDisabled = false;
       // H1.25/H1.24 (2026-04-27): extreme available в Wait Mode тоже
-      if (f.id === "extreme") isDisabled = (mode !== "Reversal" && mode !== "Wait");
-      else if (f.id === "draw_level_above") isDisabled = (state.liq_draw !== "Above" && state.liq_draw !== "Both");
+      // BUG-FIX 2026-04-29: removed mode-based disable. Extreme field availability had ordering dependency
+      // (Recently Swept selected before Regime → Mode null → Extreme blocked). Now always available;
+      // requirement validation still applies in computeMode (Reversal без extreme = blocker).
+      // Field is informational always; "required" semantic enforced through blocker logic, not UI gating.
+      // if (f.id === "extreme") isDisabled = (mode !== "Reversal" && mode !== "Wait");  // OLD
+      if (f.id === "draw_level_above") isDisabled = (state.liq_draw !== "Above" && state.liq_draw !== "Both");
       else if (f.id === "draw_level_below") isDisabled = (state.liq_draw !== "Below" && state.liq_draw !== "Both");
       else if (f.id === "barrier_above") isDisabled = (state.liq_draw === "Below");
       else if (f.id === "barrier_below") isDisabled = (state.liq_draw === "Above");
@@ -1872,6 +2034,7 @@ function render() {
     }
     // H9.1 (2026-04-29): Setup Geometry — 6 conditional price fields, render before Notes
     // H8.2 (2026-04-29): TP2 inputs added — visible when ≥2 targets selected on side
+    // H8.3 (2026-04-29): B2 inputs added — visible when ≥2 barriers selected on side
     if (g.key === "htf") {
       // Determine which fields visible based on selected types
       const dlAboveCount = Array.isArray(state.draw_level_above) ? state.draw_level_above.length : (state.draw_level_above ? 1 : 0);
@@ -1880,8 +2043,12 @@ function render() {
       const dlBelowSelected = dlBelowCount > 0;
       const dlAboveTiered = dlAboveCount >= 2;
       const dlBelowTiered = dlBelowCount >= 2;
-      const barAboveSelected = Array.isArray(state.barrier_above) ? state.barrier_above.length > 0 : !!state.barrier_above;
-      const barBelowSelected = Array.isArray(state.barrier_below) ? state.barrier_below.length > 0 : !!state.barrier_below;
+      const barAboveCount = Array.isArray(state.barrier_above) ? state.barrier_above.length : (state.barrier_above ? 1 : 0);
+      const barBelowCount = Array.isArray(state.barrier_below) ? state.barrier_below.length : (state.barrier_below ? 1 : 0);
+      const barAboveSelected = barAboveCount > 0;
+      const barBelowSelected = barBelowCount > 0;
+      const barAboveTiered = barAboveCount >= 2;
+      const barBelowTiered = barBelowCount >= 2;
       const extremeSelected = Array.isArray(state.extreme) ? state.extreme.length > 0 : !!state.extreme;
       // At least one conditional field visible? (Current Price is always visible)
       const anyConditional = dlAboveSelected || dlBelowSelected || barAboveSelected || barBelowSelected || extremeSelected;
@@ -1891,12 +2058,14 @@ function render() {
       const priceTargetAbove2Tooltip = "<strong>Target Above 2 Price — TP2 (H8.2)</strong>\nPrice level <strong>further</strong> target above current (runner/extended target).\n\n<strong>H8.2 multi-horizon:</strong> TP1 might be Intraday-reachable while TP2 requires Swing horizon. System auto-detects native horizon per target.\n\n<strong>Common pattern:</strong> Scalp partial at TP1 (intraday-reachable), runner to TP2 (swing-reachable). Trade horizon = max hold willingness (Swing).";
       const priceTargetBelowTooltip = priceTargetAboveTooltip.replace(/Above/g, "Below").replace(/above/g, "below");
       const priceTargetBelow2Tooltip = priceTargetAbove2Tooltip.replace(/Above/g, "Below").replace(/above/g, "below");
-      const priceBarrierAboveTooltip = "<strong>Barrier Above Price (H9.1)</strong>\nPrice level выбранного nearest barrier above current (OB, Wick SNR, RN).\n\n<strong>Distance check (auto, replaces O7.2 manual rule):</strong>\nIntraday: barrier active if ≤ 2× ATR(1H).\nSwing: barrier active if ≤ 1× ATR(D).\nIf > threshold → barrier auto-marked inactive (Notes mark, не contributes к conviction triggers).\n\n<strong>H8.2 (2026-04-29):</strong> Path-aware — barrier shown active per target path. If barrier sits between current и TP1 → blocks TP1 path. If только between current и TP2 → blocks TP2 path только (TP1 still reachable).";
-      const priceBarrierBelowTooltip = priceBarrierAboveTooltip.replace("Above", "Below").replace("above", "below");
+      const priceBarrierAboveTooltip = "<strong>Barrier Above Price — B1 (H9.1)</strong>\nPrice level <strong>nearest</strong> barrier above current (OB, Wick SNR, RN).\n\n<strong>Distance check (auto, replaces O7.2 manual rule):</strong>\nIntraday: barrier active if ≤ 2× ATR(1H).\nSwing: barrier active if ≤ 1× ATR(D).\nIf > threshold → barrier auto-marked inactive (Notes mark, не contributes к conviction triggers).\n\n<strong>H8.2 path-aware:</strong> barrier shown active per target path. If barrier sits between current и TP1 → blocks TP1 path. If только between current и TP2 → blocks TP2 path только.\n\n<strong>H8.3 (2026-04-29):</strong> If ≥2 barriers selected on this side — B2 input also appears для multi-barrier setups (e.g. nearest barrier + further barrier).";
+      const priceBarrierAbove2Tooltip = "<strong>Barrier Above 2 Price — B2 (H8.3)</strong>\nPrice level of <strong>second</strong> barrier above current (further barrier).\n\n<strong>H8.3 multi-barrier:</strong> Each barrier checked independently against each target path. Display shows per-barrier status (active/bypass/inactive).\n\n<strong>Common pattern:</strong> Two barriers on path к target — e.g. OB at 2364 + Round Number at 2400, both potentially blocking path to TP at 2422.";
+      const priceBarrierBelowTooltip = priceBarrierAboveTooltip.replace(/Above/g, "Below").replace(/above/g, "below");
+      const priceBarrierBelow2Tooltip = priceBarrierAbove2Tooltip.replace(/Above/g, "Below").replace(/above/g, "below");
       const priceNearExtremeTooltip = "<strong>Near Extreme Price (H9.1)</strong>\nPrice level swept extreme (PWH, PMH, etc.) — для post-sweep digestion check.\n\n<strong>Distance check:</strong>\nWhen Recently Swept set + distance from extreme > horizon's digestion threshold (Intraday: 2× ATR(1H); Swing: 1× ATR(D)) → auto-suggest Wait Mode = post_sweep_digestion.\n\nLeave empty if extreme distance не actionable для current setup.";
       // Single row: Current Price + conditional fields (compact)
       html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);gap:12px;align-items:center;flex-wrap:wrap">`;
-      html += `<span class="lbl"><span class="tip">Geometry ⓘ<span class="tip-box">H9.1 — quantitative price coordinates. Enables auto distance checks + Wait Mode suggestions.<br><br>H8.2 — tiered targets (TP1+TP2) appear when ≥2 targets selected per side; per-target horizon auto-detected.</span></span></span>`;
+      html += `<span class="lbl"><span class="tip">Geometry ⓘ<span class="tip-box">H9.1 — quantitative price coordinates. Enables auto distance checks + Wait Mode suggestions.<br><br>H8.2 — tiered targets (TP1+TP2) appear when ≥2 targets selected per side; per-target horizon auto-detected.<br><br>H8.3 — multi-barrier (B1+B2) appear when ≥2 barriers selected per side; each barrier path-aware checked independently.</span></span></span>`;
       // Field renderer
       const renderPriceField = (field, label, tooltip, placeholder) => {
         const cur = state["price_" + field];
@@ -1921,8 +2090,16 @@ function render() {
         html += renderPriceField("target_below", dlBelowTiered ? "TP1↓" : "Target↓", priceTargetBelowTooltip, "e.g. 75500");
         if (dlBelowTiered) html += renderPriceField("target_below_2", "TP2↓", priceTargetBelow2Tooltip, "e.g. 75000");
       }
-      if (barAboveSelected) html += renderPriceField("barrier_above", "Barrier↑", priceBarrierAboveTooltip, "e.g. 78000");
-      if (barBelowSelected) html += renderPriceField("barrier_below", "Barrier↓", priceBarrierBelowTooltip, "e.g. 75000");
+      // H8.3: Above barrier(s)
+      if (barAboveSelected) {
+        html += renderPriceField("barrier_above", barAboveTiered ? "B1↑" : "Barrier↑", priceBarrierAboveTooltip, "e.g. 78000");
+        if (barAboveTiered) html += renderPriceField("barrier_above_2", "B2↑", priceBarrierAbove2Tooltip, "e.g. 79000");
+      }
+      // H8.3: Below barrier(s)
+      if (barBelowSelected) {
+        html += renderPriceField("barrier_below", barBelowTiered ? "B1↓" : "Barrier↓", priceBarrierBelowTooltip, "e.g. 75000");
+        if (barBelowTiered) html += renderPriceField("barrier_below_2", "B2↓", priceBarrierBelow2Tooltip, "e.g. 74000");
+      }
       if (extremeSelected) html += renderPriceField("near_extreme", "Extreme", priceNearExtremeTooltip, "e.g. 79428");
       html += `</div>`;
     }
@@ -2418,27 +2595,32 @@ async function skipToNotion() {
   if (state.price_target_above_2 !== undefined) props["Target Above 2 Price"] = state.price_target_above_2;
   if (state.price_target_below   !== undefined) props["Target Below Price"] = state.price_target_below;
   if (state.price_target_below_2 !== undefined) props["Target Below 2 Price"] = state.price_target_below_2;
-  if (state.price_barrier_above  !== undefined) props["Barrier Above Price"]= state.price_barrier_above;
-  if (state.price_barrier_below  !== undefined) props["Barrier Below Price"]= state.price_barrier_below;
+  if (state.price_barrier_above   !== undefined) props["Barrier Above Price"]  = state.price_barrier_above;
+  if (state.price_barrier_above_2 !== undefined) props["Barrier Above 2 Price"] = state.price_barrier_above_2;
+  if (state.price_barrier_below   !== undefined) props["Barrier Below Price"]  = state.price_barrier_below;
+  if (state.price_barrier_below_2 !== undefined) props["Barrier Below 2 Price"] = state.price_barrier_below_2;
   if (state.price_near_extreme   !== undefined) props["Near Extreme Price"] = state.price_near_extreme;
   let notes = document.getElementById("notes").value;
   // H1.25/H1.24 (2026-04-27): auto-append Wait Mode metadata if set (skip path)
   // H8.1 (2026-04-28): also append Trade Horizon + both ATR values
   // H9.1 (2026-04-29): also append all 6 price fields if set
   // H8.2 (2026-04-29): also append TP2 prices
+  // H8.3 (2026-04-29): also append B2 barrier prices
   const metaLinesSkip = [];
   if (state.trade_horizon) metaLinesSkip.push("Trade Horizon: " + state.trade_horizon);
   if (state.wait_sub_type) metaLinesSkip.push("Wait Sub-type: " + state.wait_sub_type);
   if (state.atr_1h && state.atr_1h > 0) metaLinesSkip.push("ATR(14) @ 1H: " + state.atr_1h);
   if (state.atr_d  && state.atr_d  > 0) metaLinesSkip.push("ATR(14) @ 1D: " + state.atr_d);
-  if (state.price_current        !== undefined) metaLinesSkip.push("Current Price: "        + state.price_current);
-  if (state.price_target_above   !== undefined) metaLinesSkip.push("Target Above Price: "   + state.price_target_above);
-  if (state.price_target_above_2 !== undefined) metaLinesSkip.push("Target Above 2 Price: " + state.price_target_above_2);
-  if (state.price_target_below   !== undefined) metaLinesSkip.push("Target Below Price: "   + state.price_target_below);
-  if (state.price_target_below_2 !== undefined) metaLinesSkip.push("Target Below 2 Price: " + state.price_target_below_2);
-  if (state.price_barrier_above  !== undefined) metaLinesSkip.push("Barrier Above Price: "  + state.price_barrier_above);
-  if (state.price_barrier_below  !== undefined) metaLinesSkip.push("Barrier Below Price: "  + state.price_barrier_below);
-  if (state.price_near_extreme   !== undefined) metaLinesSkip.push("Near Extreme Price: "   + state.price_near_extreme);
+  if (state.price_current         !== undefined) metaLinesSkip.push("Current Price: "         + state.price_current);
+  if (state.price_target_above    !== undefined) metaLinesSkip.push("Target Above Price: "    + state.price_target_above);
+  if (state.price_target_above_2  !== undefined) metaLinesSkip.push("Target Above 2 Price: "  + state.price_target_above_2);
+  if (state.price_target_below    !== undefined) metaLinesSkip.push("Target Below Price: "    + state.price_target_below);
+  if (state.price_target_below_2  !== undefined) metaLinesSkip.push("Target Below 2 Price: "  + state.price_target_below_2);
+  if (state.price_barrier_above   !== undefined) metaLinesSkip.push("Barrier Above Price: "   + state.price_barrier_above);
+  if (state.price_barrier_above_2 !== undefined) metaLinesSkip.push("Barrier Above 2 Price: " + state.price_barrier_above_2);
+  if (state.price_barrier_below   !== undefined) metaLinesSkip.push("Barrier Below Price: "   + state.price_barrier_below);
+  if (state.price_barrier_below_2 !== undefined) metaLinesSkip.push("Barrier Below 2 Price: " + state.price_barrier_below_2);
+  if (state.price_near_extreme    !== undefined) metaLinesSkip.push("Near Extreme Price: "    + state.price_near_extreme);
   if (metaLinesSkip.length) {
     notes = (notes ? notes + "\n\n" : "") + metaLinesSkip.join("\n");
   }
@@ -2528,14 +2710,17 @@ async function saveToNotion() {
   if (state.atr_d  && state.atr_d  > 0) props["ATR(14) @ 1D"] = state.atr_d;
   // H9.1 (2026-04-29): Setup Geometry — 6 price fields as dedicated Notion fields
   // H8.2 (2026-04-29): also TP2 prices (Target Above 2, Target Below 2)
-  if (state.price_current        !== undefined) props["Current Price"]      = state.price_current;
-  if (state.price_target_above   !== undefined) props["Target Above Price"] = state.price_target_above;
-  if (state.price_target_above_2 !== undefined) props["Target Above 2 Price"] = state.price_target_above_2;
-  if (state.price_target_below   !== undefined) props["Target Below Price"] = state.price_target_below;
-  if (state.price_target_below_2 !== undefined) props["Target Below 2 Price"] = state.price_target_below_2;
-  if (state.price_barrier_above  !== undefined) props["Barrier Above Price"]= state.price_barrier_above;
-  if (state.price_barrier_below  !== undefined) props["Barrier Below Price"]= state.price_barrier_below;
-  if (state.price_near_extreme   !== undefined) props["Near Extreme Price"] = state.price_near_extreme;
+  // H8.3 (2026-04-29): also B2 barrier prices (Barrier Above 2, Barrier Below 2)
+  if (state.price_current         !== undefined) props["Current Price"]         = state.price_current;
+  if (state.price_target_above    !== undefined) props["Target Above Price"]    = state.price_target_above;
+  if (state.price_target_above_2  !== undefined) props["Target Above 2 Price"]  = state.price_target_above_2;
+  if (state.price_target_below    !== undefined) props["Target Below Price"]    = state.price_target_below;
+  if (state.price_target_below_2  !== undefined) props["Target Below 2 Price"]  = state.price_target_below_2;
+  if (state.price_barrier_above   !== undefined) props["Barrier Above Price"]   = state.price_barrier_above;
+  if (state.price_barrier_above_2 !== undefined) props["Barrier Above 2 Price"] = state.price_barrier_above_2;
+  if (state.price_barrier_below   !== undefined) props["Barrier Below Price"]   = state.price_barrier_below;
+  if (state.price_barrier_below_2 !== undefined) props["Barrier Below 2 Price"] = state.price_barrier_below_2;
+  if (state.price_near_extreme    !== undefined) props["Near Extreme Price"]    = state.price_near_extreme;
  
   // Numbers
   const numMap = {account:"Account $", risk:"Risk %", entry:"Entry Price", stop:"Stop Price", tp1:"TP1", tp2:"TP2", tp3:"TP3"};
@@ -2552,19 +2737,22 @@ async function saveToNotion() {
   // H8.1 (2026-04-28): also append Trade Horizon + both ATR values for journal completeness
   // H9.1 (2026-04-29): also append all 6 price fields if set
   // H8.2 (2026-04-29): also append TP2 prices
+  // H8.3 (2026-04-29): also append B2 barrier prices
   const metaLines = [];
   if (state.trade_horizon)            metaLines.push("Trade Horizon: " + state.trade_horizon);
   if (state.wait_sub_type)            metaLines.push("Wait Sub-type: " + state.wait_sub_type);
   if (state.atr_1h && state.atr_1h > 0) metaLines.push("ATR(14) @ 1H: " + state.atr_1h);
   if (state.atr_d  && state.atr_d  > 0) metaLines.push("ATR(14) @ 1D: " + state.atr_d);
-  if (state.price_current        !== undefined) metaLines.push("Current Price: "        + state.price_current);
-  if (state.price_target_above   !== undefined) metaLines.push("Target Above Price: "   + state.price_target_above);
-  if (state.price_target_above_2 !== undefined) metaLines.push("Target Above 2 Price: " + state.price_target_above_2);
-  if (state.price_target_below   !== undefined) metaLines.push("Target Below Price: "   + state.price_target_below);
-  if (state.price_target_below_2 !== undefined) metaLines.push("Target Below 2 Price: " + state.price_target_below_2);
-  if (state.price_barrier_above  !== undefined) metaLines.push("Barrier Above Price: "  + state.price_barrier_above);
-  if (state.price_barrier_below  !== undefined) metaLines.push("Barrier Below Price: "  + state.price_barrier_below);
-  if (state.price_near_extreme   !== undefined) metaLines.push("Near Extreme Price: "   + state.price_near_extreme);
+  if (state.price_current         !== undefined) metaLines.push("Current Price: "         + state.price_current);
+  if (state.price_target_above    !== undefined) metaLines.push("Target Above Price: "    + state.price_target_above);
+  if (state.price_target_above_2  !== undefined) metaLines.push("Target Above 2 Price: "  + state.price_target_above_2);
+  if (state.price_target_below    !== undefined) metaLines.push("Target Below Price: "    + state.price_target_below);
+  if (state.price_target_below_2  !== undefined) metaLines.push("Target Below 2 Price: "  + state.price_target_below_2);
+  if (state.price_barrier_above   !== undefined) metaLines.push("Barrier Above Price: "   + state.price_barrier_above);
+  if (state.price_barrier_above_2 !== undefined) metaLines.push("Barrier Above 2 Price: " + state.price_barrier_above_2);
+  if (state.price_barrier_below   !== undefined) metaLines.push("Barrier Below Price: "   + state.price_barrier_below);
+  if (state.price_barrier_below_2 !== undefined) metaLines.push("Barrier Below 2 Price: " + state.price_barrier_below_2);
+  if (state.price_near_extreme    !== undefined) metaLines.push("Near Extreme Price: "    + state.price_near_extreme);
   if (metaLines.length) {
     notes = (notes ? notes + "\n\n" : "") + metaLines.join("\n");
   }

@@ -155,7 +155,9 @@ const OPT_LABELS = {
   "Trend 3/3": "3/3",
   // Resolution options — timeframe stripped from button text (now shown в section label "Resolution 30-90m")
   "OI Stabilized 30-60m": "OI Stabilized",
-  "No Resolution 60-90m⛔": "No Resolution⛔"
+  "No Resolution 60-90m⛔": "No Resolution⛔",
+  // 2026-04-29: "Price Hold" misread as "price stays flat" — actual semantic = direction confirmed
+  "New OI Build & Price Hold": "OI Build + Direction Conf"
 };
 function optLabel(o) { return OPT_LABELS[o] || o; }
  
@@ -729,10 +731,23 @@ function computeBlockers() {
   const call = computeTradeCall();
   const phase = computeLiquidityPhase();
   const mode = computeMode();
+  const mktState = computeMarketState();
+  const sqzResol = state.sqzresol;
   const blockers = [];
   
   // Existing: Phase = Transition (both sides swept)
   if (phase === "Transition⛔") blockers.push("Phase = Transition (both sides swept)");
+  
+  // Bug fix 2026-04-29: Squeeze-induced No Trade should surface as blocker.
+  // Previously computeMode returned "No Trade" but computeBlockers didn't push corresponding entry,
+  // leaving Details panel inconsistent ("Mode: No Trade — see Blockers" / "Blockers: none").
+  if (mktState === "L.Squeeze⛔" || mktState === "S.Squeeze⛔") {
+    if (sqzResol === "No Resolution 60-90m⛔") {
+      blockers.push(`${mktState} unresolved 60-90m (No Resolution explicit)`);
+    } else if (!sqzResol) {
+      blockers.push(`${mktState} active — pick Resolution to unblock`);
+    }
+  }
   
   // Existing: Reversal mode without Extreme selected
   if (mode === "Reversal" && (!Array.isArray(S.extreme) || !S.extreme.length)) {

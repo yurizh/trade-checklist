@@ -2426,7 +2426,7 @@ function render() {
         if (ok) filled++;
       }
     }
-    vEl.innerHTML = `<span class="verdict-label" style="color:var(--muted);font-weight:600">⚪ INCOMPLETE (${filled}/${total})</span>`;
+    vEl.innerHTML = `<span class="verdict-label" style="color:var(--muted);font-weight:600;white-space:nowrap">⚪ ${filled}/${total}</span>`;
   }
 }
  

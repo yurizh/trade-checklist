@@ -2568,12 +2568,14 @@ function syncDisabledFields() {
     state.draw_level_above = undefined;
     state.draw_level_below = undefined;
   }
-  // Mode-based disable: extreme active в Reversal AND Wait modes
-  // H1.25/H1.24 (2026-04-27): Wait Mode preserves extreme (post_sweep_digestion needs it)
-  const m = computeMode();
-  if (m !== "Reversal" && m !== "Wait") {
-    state.extreme = undefined;
-  }
+  // Mode-based extreme handling — REMOVED auto-wipe (Bug fix 2026-04-30, Setup #24).
+  // Previously: wiped state.extreme + state.price_near_extreme when Mode transitioned away from Reversal/Wait.
+  // Problem: oscillating Mode (e.g. user toggles Recently Swept off briefly) would discard user input
+  // without recovering it on re-enable. User reported lost PWH selection + Extreme Price input после
+  // sequence of state changes during Setup #24. Stickiness-preferred semantic: keep user-selected
+  // extreme + price persisted regardless of Mode. Validation в computeBlockers still fires
+  // "Reversal без extreme" if truly empty. Field is informational always; "required" semantic
+  // enforced through blocker logic, not state wipe.
 }
 
 function pick(id, val) {

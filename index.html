@@ -2944,6 +2944,10 @@ function resetAll() {
   state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false};
   ['state','disp','risk','entry','stop','tp1','tp2','tp3','rr','notes','screenshot','account'].forEach(k => localStorage.removeItem('tc_'+k));
   localStorage.removeItem('tc_state');
+  // B8 fix (2026-05-01): clear sessionStorage H9.1 price fields too.
+  // Without this, F5 после RESET reloaded stale prices от previous setup via loadAllPrices() on init.
+  // clearAllPrices() unified function — same path used on asset change, now also on RESET.
+  clearAllPrices();
   document.getElementById("notes").value = "";
   document.getElementById("screenshot").value = "";
   render();

@@ -1256,6 +1256,31 @@ function detectHTFWarnings(S, call, mode) {
     }
   }
   
+  // ==== H1.34: Bias-Target consistency check ====
+  // FORMALIZED 2026-05-01 (counter:3 reached). Soft warning (NOT blocker, NOT trigger penalty).
+  // Pattern: Daily directional but Target on opposite side of Daily direction.
+  // Exception: Weekly directional matches Target side ("Weekly overrides Daily" — different narrative pattern,
+  // typically Weekly-led reversal scenario, not H1.34 territory).
+  // Purpose: Catch unclear narratives early (fade-the-bias setups need explicit reasoning, not implicit drift).
+  if (D && D !== "Balanced" && (target === "Above" || target === "Below")) {
+    const dailyDir = D === "Bullish" ? "Above" : "Below";
+    const targetOppositeDaily = target !== dailyDir;
+    if (targetOppositeDaily) {
+      // Weekly override: Weekly directional AND matches Target side
+      const weeklyMatchesTarget = 
+        (W === "Bullish" && target === "Above") ||
+        (W === "Bearish" && target === "Below");
+      if (!weeklyMatchesTarget) {
+        const wkLabel = W && W !== "Balanced" ? `Weekly ${W} + ` : "";
+        warnings.push({
+          id: "H1.34",
+          title: "Bias-Target inconsistency",
+          body: `${wkLabel}Daily ${D} but Target ${target}. Daily direction conflicts with target side. Verify scenario logic before entry — typical pattern is Daily-led move toward Target side; mismatch may indicate fade-the-bias setup or unclear narrative requiring explicit justification.`
+        });
+      }
+    }
+  }
+  
   // ==== H1.14: Weekly directional + Daily opposite + Trend 3/3 matches Daily ====
   // Pattern: Classical stop-hunt — price runs Daily direction to grab liquidity before reverting to Weekly
   if (W && W !== "Balanced" && D && D !== "Balanced" && W !== D) {
@@ -1574,7 +1599,12 @@ function renderVerboseHTF() {
   out += `<div>`;
 
   // Direction
-  out += `<div style="margin-bottom:6px"><b>Direction:</b> ${call||"—"}</div>`;
+  // H1.33 fix (2026-05-01, counter:4): Use computeDirection() not call (=computeTradeCall())
+  // so H1.20 override (W=Bal+D=directional) shows correct Long/Short instead of stale Both↓.
+  // Other render paths (Section 8 line 2479, Notion save lines 3030/3146) already use computeDirection() correctly.
+  // Fallback to `call` preserves informative "Both↓" for true Bal+Bal cases where computeDirection()
+  // returns null after exhausting all inference paths (no override, no sweep inference, no MS direction).
+  out += `<div style="margin-bottom:6px"><b>Direction:</b> ${computeDirection()||call||"—"}</div>`;
   out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px">`;
   if (S.weekly_bias && S.daily_bias) {
     const aligned = S.weekly_bias === S.daily_bias;

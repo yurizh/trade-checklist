@@ -175,8 +175,9 @@ const GROUPS = [
       {id:"regime",label:"Regime",opts:["Trend 3/3 Bull","Trend 3/3 Bear","Mod 2/3 Bull","Mod 2/3 Bear"]},
       {id:"liq_draw",label:"Target Liq.",opts:["Above","Below","Both"]},
       {id:"swept",label:"Recently Swept",opts:["Above","Below","Both"],optional:true},
-      {id:"killzone",label:"Killzone",opts:["Asia","London","NY","Low Liquidity"]},
-      {id:"range_position",label:"Session Range Position",opts:["Breakout Above","Breakout Below","Sweep Above","Sweep Below","Mid-Range"]},
+      {id:"killzone",label:"Session",opts:["Asia","London","NY"],optional:true},
+      {id:"range_type",label:"Range Position",opts:["Breakout","Sweep","Mid-Range"]},
+      {id:"range_dir",label:"Direction",opts:["Above","Below"]},
       {id:"barrier_above",label:"Barrier Above (≤ 2×ATR 1H)",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
       {id:"barrier_below",label:"Barrier Below (≤ 2×ATR 1H)",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
       {id:"extreme",label:"Near HTF Extreme",opts:["HTF Swing","PMH","PML","PWH","PWL","PDH","PDL","EQH","EQL","MO"],optional:true,multi:true},
@@ -2021,6 +2022,8 @@ function render() {
         if (fid === "draw_level_below") return (state.liq_draw !== "Below" && state.liq_draw !== "Both");
         if (fid === "barrier_above") return (state.liq_draw === "Below");
         if (fid === "barrier_below") return (state.liq_draw === "Above");
+        // O7.30 (2026-05-03): Direction N/A when Range Position = Mid-Range
+        if (fid === "range_dir") return state.range_type === "Mid-Range";
         return false;
       };
       const computedInline = (fid) => {
@@ -2083,11 +2086,13 @@ function render() {
       html += renderField(fmap.regime, 0);
       html += renderField(fmap.swept, 0);
       html += `</div>`;
-      // Row 2.5 (O7.30 / O7.28 — added 2026-05-02): Killzone | Session Range Position
-      // Killzone auto-defaults from UTC hour on init/reset. Range Position migrated from S5 (dissolved).
-      html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:6px">`;
-      html += renderField(fmap.killzone, 4);
-      html += renderField(fmap.range_position, 5);
+      // Row 2.5 (O7.30 / O7.28 — 2026-05-02 / renamed + split 2026-05-03): Session | Range Position | Direction
+      // Session auto-defaults from UTC hour (empty 21-24 UTC). Range split into Type (Breakout/Sweep/Mid-Range) + Direction (Above/Below) to save horizontal space.
+      // Direction disabled when Type=Mid-Range. state.range_position derived from both parts in pick().
+      html += `<div style="display:grid;grid-template-columns:1fr 1fr 0.7fr;gap:20px;margin-bottom:6px">`;
+      html += renderField(fmap.killzone, 3);
+      html += renderField(fmap.range_type, 3);
+      html += renderField(fmap.range_dir, 2);
       html += `</div>`;
       // Row 3: Near HTF Extreme (full width, under phase cluster)
       // H9.1 (UX 2026-04-29): Extreme price input inline with extreme buttons row when selected.
@@ -2603,6 +2608,18 @@ function syncDisabledFields() {
 
 function pick(id, val) {
   state[id] = state[id] === val ? undefined : val;
+  // O7.30 (2026-05-03): derive state.range_position from range_type + range_dir (split UI fields).
+  // All verdict logic and FIELD_MAP still read state.range_position — kept as canonical derived value.
+  if (id === "range_type" || id === "range_dir") {
+    if (state.range_type === "Mid-Range") {
+      state.range_position = "Mid-Range";
+      state.range_dir = undefined;  // direction N/A for Mid-Range
+    } else if (state.range_type && state.range_dir) {
+      state.range_position = `${state.range_type} ${state.range_dir}`;
+    } else {
+      state.range_position = undefined;  // incomplete (only one part set)
+    }
+  }
   syncDisabledFields();
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();
@@ -2941,12 +2958,12 @@ function resetAll() {
   // Without this, F5 после RESET reloaded stale prices от previous setup via loadAllPrices() on init.
   // clearAllPrices() unified function — same path used on asset change, now also on RESET.
   clearAllPrices();
-  // O7.30 (2026-05-02): re-apply killzone auto-default after reset.
+  // O7.30 (2026-05-02 / updated 2026-05-03): re-apply session auto-default after reset.
+  // 21-24 UTC intentionally leaves field empty (between sessions).
   const utcH = new Date().getUTCHours();
   if (utcH < 8) state.killzone = "Asia";
   else if (utcH < 13) state.killzone = "London";
   else if (utcH < 21) state.killzone = "NY";
-  else state.killzone = "Low Liquidity";
   document.getElementById("notes").value = "";
   document.getElementById("screenshot").value = "";
   render();
@@ -2990,7 +3007,7 @@ const FIELD_MAP = {
   trigger:["Trigger",{BOS:"BOS","Liq.Sweep":"Liquidity Sweep"}],
   confirm:["Confirmation",{Holds:"Continuation","Retest OK":"Acceptance","Not yet":"None"}],
   range_position:["Range Position",{"Breakout Above":"Breakout Above","Breakout Below":"Breakout Below","Sweep Above":"Sweep Above","Sweep Below":"Sweep Below","Mid-Range":"Mid-Range"}],
-  killzone:["Killzone",{Asia:"Asia",London:"London",NY:"NY","Low Liquidity":"Low Liquidity"}],
+  killzone:["Session",{Asia:"Asia",London:"London",NY:"NY"}],
   pricedir:["",null],
   sqzresol:["",null],
   oidir:["",null],
@@ -3285,17 +3302,33 @@ if (state.asset) {
 // sessionStorage survives F5 but not tab close. If sessionStorage was cleared (new session) → all undefined.
 loadAllPrices();
 
-// O7.30 / O7.28 (2026-05-02): Killzone auto-default by current UTC hour.
-// Windows: Asia 00-08 UTC, London 08-13 UTC, NY 13-21 UTC, Low Liquidity 21-24 UTC.
+// O7.30 / O7.28 (2026-05-02 / updated 2026-05-03): Session auto-default by current UTC hour.
+// Windows: Asia 00-08 UTC, London 08-13 UTC, NY 13-21 UTC. 21-24 UTC = no session (field stays empty).
 // User can manually override the default if they want.
+// Migration: clear stale "Low Liquidity" values from prior version.
+if (state.killzone === "Low Liquidity") state.killzone = undefined;
+
+// Migration (2026-05-03): split state.range_position into range_type + range_dir (UI parts).
+// Existing localStorage values like "Sweep Above" → range_type="Sweep", range_dir="Above".
+// state.range_position is kept as derived value (used by verdict logic + FIELD_MAP).
+if (state.range_position && !state.range_type) {
+  if (state.range_position === "Mid-Range") {
+    state.range_type = "Mid-Range";
+  } else {
+    const parts = state.range_position.split(" ");
+    if (parts.length === 2) {
+      state.range_type = parts[0];   // "Breakout" | "Sweep"
+      state.range_dir = parts[1];    // "Above" | "Below"
+    }
+  }
+}
+
 if (!state.killzone) {
   const utcH = new Date().getUTCHours();
-  let kz;
-  if (utcH < 8) kz = "Asia";
-  else if (utcH < 13) kz = "London";
-  else if (utcH < 21) kz = "NY";
-  else kz = "Low Liquidity";
-  state.killzone = kz;
+  if (utcH < 8) state.killzone = "Asia";
+  else if (utcH < 13) state.killzone = "London";
+  else if (utcH < 21) state.killzone = "NY";
+  // 21-24 UTC: leave empty (between sessions — no auto-fill)
 }
 
 // H1.19 — Clear persisted Notes on new tab/window session (per-setup intent).

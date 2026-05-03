@@ -175,6 +175,8 @@ const GROUPS = [
       {id:"regime",label:"Regime",opts:["Trend 3/3 Bull","Trend 3/3 Bear","Mod 2/3 Bull","Mod 2/3 Bear"]},
       {id:"liq_draw",label:"Target Liq.",opts:["Above","Below","Both"]},
       {id:"swept",label:"Recently Swept",opts:["Above","Below","Both"],optional:true},
+      {id:"killzone",label:"Killzone",opts:["Asia","London","NY","Low Liquidity"]},
+      {id:"range_position",label:"Session Range Position",opts:["Breakout Above","Breakout Below","Sweep Above","Sweep Below","Mid-Range"]},
       {id:"barrier_above",label:"Barrier Above (≤ 2×ATR 1H)",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
       {id:"barrier_below",label:"Barrier Below (≤ 2×ATR 1H)",opts:["HTF FVG","Wick SNR","OB","Round Number"],optional:true,multi:true},
       {id:"extreme",label:"Near HTF Extreme",opts:["HTF Swing","PMH","PML","PWH","PWL","PDH","PDL","EQH","EQL","MO"],optional:true,multi:true},
@@ -203,25 +205,20 @@ const GROUPS = [
       {id:"f_price",label:"Price 8-48h",opts:["Rising","Falling","Flat"]},
       {id:"f_oi",label:"OI 8-48h",opts:["Rising","Flat","Falling"]}
     ]},
-  { key:"entry_perm", title:"5. PERMISSION", color:"#10b981",
-    rules:"Breakout→continuation | Sweep→reversal ONLY after disp+acceptance | Mid-Range→ONLY after disp+acceptance OUTSIDE",
-    fields:[
-      {id:"session",label:"Session",opts:["Breakout","Sweep","Mid-Range"]}
-    ]},
-  { key:"entry_trigger", title:"6. TRIGGER", color:"#059669",
+  { key:"entry_trigger", title:"5. TRIGGER", color:"#059669",
     rules:"BOS→hold above BOS/FVG/origin | Liq.Sweep→rejection+acceptance after sweep | Holds=immediate confirm | Retest OK=came back & held",
     fields:[
       {id:"trigger",label:"Trigger",opts:["BOS","Liq.Sweep"]},
       {id:"confirm",label:"Confirm",opts:["Holds","Retest OK","Not yet"]}
     ]},
-  { key:"entry_logic", title:"7. LOGIC", color:"#047857",
+  { key:"entry_logic", title:"6. LOGIC", color:"#047857",
     rules:"Disp 15M ALL4 | >0.5 ATR from MO/WO/DO | <1.2 ATR from disp origin | Immediate if disp+OI growth, else wait 1-3 candles",
     fields:[
       {id:"disp",label:"Displacement",opts:[]},
       {id:"opens_dist",label:"MO/WO/DO >0.5ATR",opts:["Yes","Too Close⛔"]},
       {id:"origin_dist",label:"Price <1.2 ATR",opts:["Yes","Too Far⛔"]}
     ]},
-  { key:"trade", title:"8. ENTRY RULES", color:"#ef4444",
+  { key:"trade", title:"7. ENTRY RULES", color:"#ef4444",
     rules:"High: 2%, RR 1:2-1:2.5, immediate | Standard: 1%, RR 1:2, prefer retest | Low: 0.5%, RR 1:2 | Max 1 concurrent BTC/ETH/SOL | Total<3%",
     fields:[
       {id:"corrcheck",label:"BTC/ETH/SOL",opts:["No open trades","Conflict⛔"]}
@@ -1000,9 +997,9 @@ function computeConviction() {
   if (oi15 === "Diverge⛔") triggers++;
   if (oi15 === "Against↓") triggers++;
   
-  // Permission triggers
-  if (state.session === "Mid-Range") triggers++;
-  if (state.session === "Sweep") triggers++;
+  // Range position triggers (per O7.30: S5 Permission dissolved, range_position is new field)
+  if (state.range_position === "Mid-Range") triggers++;
+  if (state.range_position === "Sweep Above" || state.range_position === "Sweep Below") triggers++;
   
   // Conviction label by triggers count (per spec §7):
   // 0-1 triggers = High, 2 = Standard, 3+ = Low
@@ -1163,7 +1160,7 @@ function computeMode() {
   const phase = computeLiquidityPhase();
   const swept = state.swept;
   const mktState = computeMarketState();
-  const session = state.session;
+  const range_position = state.range_position;
   const sqzResol = state.sqzresol;
   
   // STRUCTURAL OVERRIDES — work even без Regime (Bug fix 2026-04-29)
@@ -1204,7 +1201,7 @@ function computeMode() {
   
   // Standard overrides
   if (regimeStrength(regime) === "Neutral") return "Reversal";
-  if (session === "Sweep") return "Reversal";
+  if (range_position === "Sweep Above" || range_position === "Sweep Below") return "Reversal";
   if (computeOI15M() === "Flat↓") return "Reversal";
   
   return "Continuation";
@@ -1651,7 +1648,7 @@ function renderVerboseHTF() {
   } else if (mode === "Reversal") {
     if (regStr === "Neutral") out += `<span style="color:var(--red)">−1</span> Regime = Neutral → forces Reversal<br>`;
     if (swept === "Above" || swept === "Below") out += `<span style="color:var(--red)">−1</span> Recently Swept = ${swept}<br>`;
-    if (S.session === "Sweep") out += `<span style="color:var(--red)">−1</span> Session = Sweep<br>`;
+    if (S.range_position === "Sweep Above" || S.range_position === "Sweep Below") out += `<span style="color:var(--red)">−1</span> Range Position = ${S.range_position}<br>`;
   } else if (mode === "Wait") {
     out += `<span style="color:var(--yellow, #ca8a04)">⚠</span> Manual Wait override (sub-type: ${S.wait_sub_type})<br>`;
     out += `<span style="color:var(--muted)">  ·</span> Resolution: ${waitResolution(S.wait_sub_type)}<br>`;
@@ -1988,7 +1985,7 @@ function render() {
     const statusIcon = (groupStop || computedStop) ? '<span class="status-icon" style="color:var(--red)">⛔</span>' : allFilled ? '<span class="status-icon" style="color:var(--green)">✓</span>' : '';
     
     if (g.key === "market") html += '<div class="col-row">';
-    if (g.key === "entry_perm") html += '<div class="col-row">';
+    if (g.key === "entry_trigger") html += '<div class="col-row">';
     
     html += `<div class="group" style="border-left:3px solid ${g.color}">`;
     html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}`;
@@ -2085,6 +2082,12 @@ function render() {
       html += `<div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;margin-bottom:6px">`;
       html += renderField(fmap.regime, 0);
       html += renderField(fmap.swept, 0);
+      html += `</div>`;
+      // Row 2.5 (O7.30 / O7.28 — added 2026-05-02): Killzone | Session Range Position
+      // Killzone auto-defaults from UTC hour on init/reset. Range Position migrated from S5 (dissolved).
+      html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:6px">`;
+      html += renderField(fmap.killzone, 4);
+      html += renderField(fmap.range_position, 5);
       html += `</div>`;
       // Row 3: Near HTF Extreme (full width, under phase cluster)
       // H9.1 (UX 2026-04-29): Extreme price input inline with extreme buttons row when selected.
@@ -2391,16 +2394,6 @@ function render() {
       const fvColor = fv === "OK" ? "var(--green)" : (fv && fv.includes("✅")) ? "var(--green)" : (fv === "No Trade") ? "var(--red)" : (fv && (fv.includes("↓") || fv === "Caution")) ? "var(--yellow, #ca8a04)" : "var(--muted)";
       html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
       html += `<span style="font-size:11px;font-weight:600;color:${fvColor}">${fv||"—"}</span>`;
-      html += `</div>`;
-    }
-    if (g.key === "entry_perm") {
-      const s = state.session;
-      let perm = "—"; let permColor = "var(--muted)";
-      if (s === "Breakout") { perm = "Continuation allowed"; permColor = "var(--green)"; }
-      else if (s === "Sweep") { perm = "Reversal ONLY after disp+accept"; permColor = "var(--yellow, #ca8a04)"; }
-      else if (s === "Mid-Range") { perm = "After disp+accept OUTSIDE only"; permColor = "var(--red)"; }
-      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
-      html += `<span style="font-size:11px;font-weight:600;color:${permColor}">${perm}</span>`;
       html += `</div>`;
     }
     if (g.key === "entry_logic") {
@@ -2948,6 +2941,12 @@ function resetAll() {
   // Without this, F5 после RESET reloaded stale prices от previous setup via loadAllPrices() on init.
   // clearAllPrices() unified function — same path used on asset change, now also on RESET.
   clearAllPrices();
+  // O7.30 (2026-05-02): re-apply killzone auto-default after reset.
+  const utcH = new Date().getUTCHours();
+  if (utcH < 8) state.killzone = "Asia";
+  else if (utcH < 13) state.killzone = "London";
+  else if (utcH < 21) state.killzone = "NY";
+  else state.killzone = "Low Liquidity";
   document.getElementById("notes").value = "";
   document.getElementById("screenshot").value = "";
   render();
@@ -2990,7 +2989,8 @@ const FIELD_MAP = {
   disp:["Displacement",{"Pass✅":"Pass","Fail⛔":"Fail"}],
   trigger:["Trigger",{BOS:"BOS","Liq.Sweep":"Liquidity Sweep"}],
   confirm:["Confirmation",{Holds:"Continuation","Retest OK":"Acceptance","Not yet":"None"}],
-  session:["Session",{Breakout:"Breakout",Sweep:"Sweep","Mid-Range":"Mid-Range"}],
+  range_position:["Range Position",{"Breakout Above":"Breakout Above","Breakout Below":"Breakout Below","Sweep Above":"Sweep Above","Sweep Below":"Sweep Below","Mid-Range":"Mid-Range"}],
+  killzone:["Killzone",{Asia:"Asia",London:"London",NY:"NY","Low Liquidity":"Low Liquidity"}],
   pricedir:["",null],
   sqzresol:["",null],
   oidir:["",null],
@@ -3284,6 +3284,19 @@ if (state.asset) {
 // H9.1 (2026-04-29): Setup Geometry — load all 6 prices from sessionStorage on init
 // sessionStorage survives F5 but not tab close. If sessionStorage was cleared (new session) → all undefined.
 loadAllPrices();
+
+// O7.30 / O7.28 (2026-05-02): Killzone auto-default by current UTC hour.
+// Windows: Asia 00-08 UTC, London 08-13 UTC, NY 13-21 UTC, Low Liquidity 21-24 UTC.
+// User can manually override the default if they want.
+if (!state.killzone) {
+  const utcH = new Date().getUTCHours();
+  let kz;
+  if (utcH < 8) kz = "Asia";
+  else if (utcH < 13) kz = "London";
+  else if (utcH < 21) kz = "NY";
+  else kz = "Low Liquidity";
+  state.killzone = kz;
+}
 
 // H1.19 — Clear persisted Notes on new tab/window session (per-setup intent).
 // sessionStorage persists across F5 refresh but not across tab close → Notes stays empty

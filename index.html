@@ -2249,9 +2249,9 @@ function render() {
       const renderDynField = (fieldId, customLabel) => {
         const f = fmap[fieldId];
         if (!f) return '';
-        const lbl = customLabel || f.label;
+        const lbl = customLabel !== undefined ? customLabel : f.label;
         let out = `<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:3px">`;
-        out += `<span style="font-size:10px;color:var(--muted);min-width:46px">${lbl}</span>`;
+        if (lbl) out += `<span style="font-size:10px;color:var(--muted);min-width:46px">${lbl}</span>`;
         out += `<div style="display:flex;flex-wrap:wrap;gap:2px">`;
         for (const o of f.opts) {
           const sel = state[f.id] === o;
@@ -2273,7 +2273,7 @@ function render() {
 
       // 3-col grid, 2 rows (5 blocks total — last cell empty filler)
       html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px">`;
-      html += renderBlock("FUNDING",    "up to 2 days view", [{id:"f_trend",label:"Funding:"}, {id:"f_level",label:"|Rate|:"}]);
+      html += renderBlock("FUNDING",    "up to 2 days view", [{id:"f_trend",label:""}, {id:"f_level",label:"|Rate|:"}]);
       html += renderBlock("MARKET",     "up to 2 days view", [{id:"f_price",label:"Price:"},   {id:"f_oi",label:"OI:"}]);
       html += renderBlock("MICRO VIEW", "Pre-Now",          [{id:"pricedir_pre",label:"Price:"}, {id:"oidir_pre",label:"OI:"}]);
       html += `</div>`;
@@ -2390,9 +2390,77 @@ function render() {
     }
     // H9.1 (2026-04-29): Setup Geometry — 6 conditional price fields, render before Notes
     // H8.2 (2026-04-29): TP2 inputs added — visible when ≥2 targets selected on side
+    if (g.key === "dynamics") {
+      // O7.32 (2026-05-03): Market Dynamics — Phase + axes shown INLINE in section header
+      // (via buildDynamicsStatusInline). Below: squeeze resolution + cross-suggest banner +
+      // verdict strip + verbose path block (preserved from old market/oi/funding sections).
+
+      // Squeeze Resolution sub-pills (when current state is squeeze) — preserved from old market section
+      const ms = computeMarketState();
+      const isSqueeze = ms && (ms === "L.Squeeze⛔" || ms === "S.Squeeze⛔");
+      const msStop = ms && ms.includes("⛔");
+      const sqz = state.sqzresol;
+      const sqzResolved = isSqueeze && sqz && !sqz.includes("⛔") && sqz !== "N/A";
+      const msColor = ms === "Bullish" ? "var(--green)" : ms === "Bearish" ? "var(--red)" : msStop ? "var(--red)" : "var(--muted)";
+      let stateLabel = ms || "—";
+      if (isSqueeze && sqzResolved) stateLabel = ms.replace("⛔","") + " → " + sqz;
+      if (isSqueeze) {
+        const sqzOpts = ["OI Stabilized 30-60m","HTF Sweep","New OI Build & Price Hold","No Resolution 60-90m⛔"];
+        html += `<div class="row"><span class="lbl">Resolution <span style="color:var(--muted);font-weight:400;font-size:10px">30-90m</span></span><div class="pills">`;
+        for (const o of sqzOpts) {
+          const sel = state.sqzresol === o;
+          const isStop = o.includes("⛔");
+          const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
+          html += `<button class="${cls}" onclick="pick('sqzresol','${o}')">${optLabel(o)}</button>`;
+        }
+        html += `</div></div>`;
+      }
+
+      // O7.22 cross-suggest banner (preserved from old oi section)
+      const s3sug = suggestSection3FromResolution();
+      if (s3sug) {
+        html += `<div style="margin:6px 0;padding:6px 8px;background:rgba(139,92,246,0.08);border-left:2px solid #8b5cf6;font-size:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">`;
+        const parts = [];
+        if (s3sug.oi15_oi) parts.push(`OI 30-60m = <b>${s3sug.oi15_oi}</b>`);
+        if (s3sug.oi15_price) parts.push(`Price 30-60m = <b>${s3sug.oi15_price}</b>`);
+        html += `<span style="color:#8b5cf6"><b>💡 O7.22:</b> ${s3sug.reason}</span>`;
+        html += `<button onclick="applySection3Suggest()" style="font-size:10px;padding:1px 6px;border:1px solid #8b5cf6;background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:3px;cursor:pointer;font-weight:600">Apply ${parts.length > 1 ? "both" : ""}</button>`;
+        html += `</div>`;
+      }
+
+      // Market State badge + Path Transition (preserved from old market section)
+      const path = computePathTransition();
+      const pre = computeMarketStatePre();
+      const oi15 = computeOI15M();
+      const oi15Color = (oi15 && oi15.includes("✅")) ? "var(--green)" : (oi15 && oi15.includes("↓")) ? "var(--yellow, #ca8a04)" : (oi15 && oi15.includes("⛔")) ? "var(--red)" : "var(--muted)";
+      const fv = computeFunding();
+      const fvColor = fv === "OK" ? "var(--green)" : (fv && fv.includes("✅")) ? "var(--green)" : (fv === "No Trade") ? "var(--red)" : (fv && (fv.includes("↓") || fv === "Caution")) ? "var(--yellow, #ca8a04)" : "var(--muted)";
+
+      // Combined verdict strip (Market State + Path + OI 15M + Funding) at bottom of section
+      html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:12px;align-items:center">`;
+      html += `<span style="font-size:12px;font-weight:700;color:${msColor}">Now: ${stateLabel}</span>`;
+      if (path) {
+        const pathColor = path.isEdgeCase ? "var(--muted)" : "var(--yellow, #ca8a04)";
+        html += `<span style="font-size:11px;color:${pathColor};font-weight:500">${path.category}</span>`;
+      } else if (pre) {
+        html += `<span style="font-size:10px;color:var(--muted)">(fill Now for path)</span>`;
+      }
+      if (oi15) html += `<span style="font-size:11px;font-weight:600;color:${oi15Color}">Mom: ${oi15}</span>`;
+      if (fv) html += `<span style="font-size:11px;font-weight:600;color:${fvColor}">Fund: ${fv}</span>`;
+      html += `</div>`;
+
+      // O7.32 (2026-05-03): Notes textarea — moved from S1 here (under Market Dynamics).
+      html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);gap:6px;align-items:flex-start">`;
+      html += `<span class="lbl" style="padding-top:6px">Notes</span>`;
+      html += `<textarea class="mini-input flex" id="notes" rows="1" placeholder="observations, context..." style="min-height:24px;height:24px;resize:vertical;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;overflow:hidden" oninput="localStorage.setItem('tc_notes',this.value);autoGrowNotes(this)"></textarea>`;
+      const detailsOpen = localStorage.getItem('tc_details_open') === '1';
+      html += `<button type="button" onclick="toggleDetails()" title="Toggle verbose Details panel — full Mode/Conviction/Blockers/Warnings breakdown" style="padding:4px 8px;font-size:10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;white-space:nowrap;margin-top:2px">${detailsOpen ? '▼ Details' : '▶ Details'}</button>`;
+      html += `</div>`;
+    }
+
     // H8.3 (2026-04-29): B2 inputs added — visible when ≥2 barriers selected on side
-    // UX (2026-04-29): Horizon row moved here (above Geometry) — they work together for distance math
-    if (g.key === "htf") {
+    // UX (2026-04-29 / moved 2026-05-03): Horizon row + Geometry — moved under Market Dynamics with Notes.
+    if (g.key === "dynamics") {
       // ─────────────────────────────────────────────────────────────────────
       // Horizon + ATR + Wait Mode row (was Row 2.5, moved here for proximity to Geometry)
       // ─────────────────────────────────────────────────────────────────────
@@ -2478,8 +2546,8 @@ function render() {
       html += `</div>`;
       html += `</div>`;
     }
-    if (g.key === "htf") {
-      // Determine which fields visible based on selected types
+    if (g.key === "dynamics") {
+      // Geometry — Determine which fields visible based on selected types
       const dlAboveCount = Array.isArray(state.draw_level_above) ? state.draw_level_above.length : (state.draw_level_above ? 1 : 0);
       const dlBelowCount = Array.isArray(state.draw_level_below) ? state.draw_level_below.length : (state.draw_level_below ? 1 : 0);
       const dlAboveSelected = dlAboveCount > 0;
@@ -2546,80 +2614,16 @@ function render() {
       // Note (2026-04-29 UX): Extreme price input now rendered inline with HTF Extreme buttons row, not here.
       html += `</div>`;
     }
-    // Notes + Details toggle (UX 2026-04-29: replaced + TP1/TP2 button with inline Details link to save vertical space)
-    if (g.key === "htf") {
-      html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);gap:6px;align-items:flex-start">`;
-      html += `<span class="lbl" style="padding-top:6px">Notes</span>`;
-      html += `<textarea class="mini-input flex" id="notes" rows="1" placeholder="observations, context..." style="min-height:24px;height:24px;resize:vertical;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;overflow:hidden" oninput="localStorage.setItem('tc_notes',this.value);autoGrowNotes(this)"></textarea>`;
-      const detailsOpen = localStorage.getItem('tc_details_open') === '1';
-      html += `<button type="button" onclick="toggleDetails()" title="Toggle verbose Details panel — full Mode/Conviction/Blockers/Warnings breakdown" style="padding:4px 8px;font-size:10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;white-space:nowrap;margin-top:2px">${detailsOpen ? '▼ Details' : '▶ Details'}</button>`;
-      html += `</div>`;
-    }
-    
-    if (g.key === "dynamics") {
-      // O7.32 (2026-05-03): Market Dynamics — Phase + axes shown INLINE in section header
-      // (via buildDynamicsStatusInline). Below: squeeze resolution + cross-suggest banner +
-      // verdict strip + verbose path block (preserved from old market/oi/funding sections).
-
-      // Squeeze Resolution sub-pills (when current state is squeeze) — preserved from old market section
-      const ms = computeMarketState();
-      const isSqueeze = ms && (ms === "L.Squeeze⛔" || ms === "S.Squeeze⛔");
-      const msStop = ms && ms.includes("⛔");
-      const sqz = state.sqzresol;
-      const sqzResolved = isSqueeze && sqz && !sqz.includes("⛔") && sqz !== "N/A";
-      const msColor = ms === "Bullish" ? "var(--green)" : ms === "Bearish" ? "var(--red)" : msStop ? "var(--red)" : "var(--muted)";
-      let stateLabel = ms || "—";
-      if (isSqueeze && sqzResolved) stateLabel = ms.replace("⛔","") + " → " + sqz;
-      if (isSqueeze) {
-        const sqzOpts = ["OI Stabilized 30-60m","HTF Sweep","New OI Build & Price Hold","No Resolution 60-90m⛔"];
-        html += `<div class="row"><span class="lbl">Resolution <span style="color:var(--muted);font-weight:400;font-size:10px">30-90m</span></span><div class="pills">`;
-        for (const o of sqzOpts) {
-          const sel = state.sqzresol === o;
-          const isStop = o.includes("⛔");
-          const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
-          html += `<button class="${cls}" onclick="pick('sqzresol','${o}')">${optLabel(o)}</button>`;
-        }
-        html += `</div></div>`;
-      }
-
-      // O7.22 cross-suggest banner (preserved from old oi section)
-      const s3sug = suggestSection3FromResolution();
-      if (s3sug) {
-        html += `<div style="margin:6px 0;padding:6px 8px;background:rgba(139,92,246,0.08);border-left:2px solid #8b5cf6;font-size:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">`;
-        const parts = [];
-        if (s3sug.oi15_oi) parts.push(`OI 30-60m = <b>${s3sug.oi15_oi}</b>`);
-        if (s3sug.oi15_price) parts.push(`Price 30-60m = <b>${s3sug.oi15_price}</b>`);
-        html += `<span style="color:#8b5cf6"><b>💡 O7.22:</b> ${s3sug.reason}</span>`;
-        html += `<button onclick="applySection3Suggest()" style="font-size:10px;padding:1px 6px;border:1px solid #8b5cf6;background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:3px;cursor:pointer;font-weight:600">Apply ${parts.length > 1 ? "both" : ""}</button>`;
-        html += `</div>`;
-      }
-
-      // Market State badge + Path Transition (preserved from old market section)
+    // O7.32 (2026-05-03): Verbose details (path transition + HTF analysis) — fires AFTER Geometry,
+    // so visual flow is: dynamics fields → verdict strip → Notes → Horizon/ATR → Geometry → Verbose Details.
+    if (g.key === "dynamics" && isVerboseOn()) {
       const path = computePathTransition();
       const pre = computeMarketStatePre();
-      const oi15 = computeOI15M();
-      const oi15Color = (oi15 && oi15.includes("✅")) ? "var(--green)" : (oi15 && oi15.includes("↓")) ? "var(--yellow, #ca8a04)" : (oi15 && oi15.includes("⛔")) ? "var(--red)" : "var(--muted)";
-      const fv = computeFunding();
-      const fvColor = fv === "OK" ? "var(--green)" : (fv && fv.includes("✅")) ? "var(--green)" : (fv === "No Trade") ? "var(--red)" : (fv && (fv.includes("↓") || fv === "Caution")) ? "var(--yellow, #ca8a04)" : "var(--muted)";
-
-      // Combined verdict strip (Market State + Path + OI 15M + Funding) at bottom of section
-      html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:12px;align-items:center">`;
-      html += `<span style="font-size:12px;font-weight:700;color:${msColor}">Now: ${stateLabel}</span>`;
-      if (path) {
-        const pathColor = path.isEdgeCase ? "var(--muted)" : "var(--yellow, #ca8a04)";
-        html += `<span style="font-size:11px;color:${pathColor};font-weight:500">${path.category}</span>`;
-      } else if (pre) {
-        html += `<span style="font-size:10px;color:var(--muted)">(fill Now for path)</span>`;
-      }
-      if (oi15) html += `<span style="font-size:11px;font-weight:600;color:${oi15Color}">Mom: ${oi15}</span>`;
-      if (fv) html += `<span style="font-size:11px;font-weight:600;color:${fvColor}">Fund: ${fv}</span>`;
-      html += `</div>`;
-
-      // Verbose path transition block (preserved)
-      if (isVerboseOn() && (path || pre)) {
+      const ms = computeMarketState();
+      if (path || pre) {
         const stripBlocker = (s) => s ? s.replace(/⛔/g, '').trim() : s;
         const preDisplay = stripBlocker(pre);
-        html += `<div style="margin-top:4px;padding:6px 8px;background:rgba(139,92,246,0.05);border-left:2px solid #8b5cf6;font-size:11px;line-height:1.5">`;
+        html += `<div style="margin-top:6px;padding:6px 8px;background:rgba(139,92,246,0.05);border-left:2px solid #8b5cf6;font-size:11px;line-height:1.5">`;
         if (path) {
           html += `<div><b>Path Transition:</b> ${path.category}</div>`;
           html += `<div style="color:var(--muted);font-size:10px;margin-top:2px">Predecessor: ${preDisplay || '—'} → Current: ${ms || '—'}</div>`;
@@ -2630,7 +2634,9 @@ function render() {
         }
         html += `</div>`;
       }
+      html += renderVerboseHTF();
     }
+
     if (g.key === "entry_logic") {
       const dispOK = state.disp === "Pass✅";
       let style = "—"; let styleColor = "var(--muted)";
@@ -2642,8 +2648,7 @@ function render() {
     }
     if (g.key === "htf") {
       // Status summary moved to section header via buildHTFStatusInline().
-      // O7.11 — Verbose HTF verdict (collapsed) — toggle in settings.
-      if (isVerboseOn()) html += renderVerboseHTF();
+      // O7.32 (2026-05-03): Verbose details panel moved to Market Dynamics section (consolidated).
     }
     if (g.extra === "trade_nums") {
       // SECTION 8: AGGREGATOR — all sections combined

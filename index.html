@@ -184,42 +184,39 @@ const GROUPS = [
       {id:"draw_level_above",label:"Liq. Above",opts:["HTF Swing H","PMH","PWH","MO","PDH","WO","EQH","FVG 50%","Round Number","Session H","DO","FVG edge"],optional:true,multi:true},
       {id:"draw_level_below",label:"Liq. Below",opts:["HTF Swing L","PML","PWL","MO","PDL","WO","EQL","FVG 50%","Round Number","Session L","DO","FVG edge"],optional:true,multi:true}
     ]},
-  { key:"market", title:"2. MARKET STATE", color:"#8b5cf6",
-    rules:"Bullish=P↑+OI↑ | Bearish=P↓+OI↑ | Squeeze=OI↓→⛔ wait resolution | Flat=OI flat→⛔ | Pre-Market (10-15h) optional — adds path context (H2.x)",
+  { key:"dynamics", title:"2. MARKET DYNAMICS", color:"#8b5cf6",
+    rules:"Phase = Movement (kinetic ≤1h: MicroView+Now+Moment) × Driver (positioning ≤2 days: Market+Funding) | High conf when both axes align | Reversal needs Conflicting+Diverging",
     fields:[
-      {id:"pricedir_pre",label:"Pre Price 10-15h",opts:["Up","Down","Flat"],optional:true},
-      {id:"oidir_pre",label:"Pre OI 10-15h",opts:["Rising","Falling","Flat"],optional:true},
-      {id:"pricedir",label:"Price 3-5h",opts:["Up","Down","Flat"]},
-      {id:"oidir",label:"OI 3-5h",opts:["Rising","Falling","Flat"]}
-    ]},
-  { key:"oi", title:"3. OI 15M", color:"#06b6d4",
-    rules:"Growth+confirms=best | Growth+against=trap↓ | Growth+P.flat=diverge⛔ | OI Flat=↓conv, no continuation | Spike=⛔ no new trade",
-    fields:[
-      {id:"oi15_price",label:"Price 30-60m",opts:["Rising","Falling","Flat"]},
-      {id:"oi15_oi",label:"OI 30-60m",opts:["Growth","Flat","Spike"]}
-    ]},
-  { key:"funding", title:"4. FUNDING", color:"#f59e0b",
-    rules:"|F|>0.1%+OI flat→No Trade | |F|>0.1%+OI confirms→↓risk | Rising 3++P flat→No Trade | Flipped+OI build→regime shift | Flipped+OI flat→noise | Never blocks alone, only reduces size",
-    fields:[
+      // FUNDING (standalone, top of section — bias signal)
+      {id:"f_trend",label:"Funding",opts:["Stable","Rising 3+","Flipped"]},
       {id:"f_level",label:"|Rate|",opts:["Extreme >0.1%"],optional:true},
-      {id:"f_trend",label:"Trend 8-48h",opts:["Stable","Rising 3+","Flipped"]},
-      {id:"f_price",label:"Price 8-48h",opts:["Rising","Falling","Flat"]},
-      {id:"f_oi",label:"OI 8-48h",opts:["Rising","Flat","Falling"]}
+      // MARKET — up to 2 days horizon (Price + OI 8-48h)
+      {id:"f_price",label:"Mkt Price 8-48h",opts:["Rising","Falling","Flat"]},
+      {id:"f_oi",label:"Mkt OI 8-48h",opts:["Rising","Flat","Falling"]},
+      // MICRO VIEW — Pre-Now (10-15h window, optional path predecessor)
+      {id:"pricedir_pre",label:"Micro Price 10-15h",opts:["Up","Down","Flat"],optional:true},
+      {id:"oidir_pre",label:"Micro OI 10-15h",opts:["Rising","Falling","Flat"],optional:true},
+      // NOW — last few hours logical move (3-5h window)
+      {id:"pricedir",label:"Now Price 3-5h",opts:["Up","Down","Flat"]},
+      {id:"oidir",label:"Now OI 3-5h",opts:["Rising","Falling","Flat"]},
+      // MOMENT — last 15m
+      {id:"oi15_price",label:"Mom Price 30-60m",opts:["Rising","Falling","Flat"]},
+      {id:"oi15_oi",label:"Mom OI 30-60m",opts:["Growth","Flat","Spike"]}
     ]},
-  { key:"entry_trigger", title:"5. TRIGGER", color:"#059669",
+  { key:"entry_trigger", title:"3. TRIGGER", color:"#059669",
     rules:"BOS→hold above BOS/FVG/origin | Liq.Sweep→rejection+acceptance after sweep | Holds=immediate confirm | Retest OK=came back & held",
     fields:[
       {id:"trigger",label:"Trigger",opts:["BOS","Liq.Sweep"]},
       {id:"confirm",label:"Confirm",opts:["Holds","Retest OK","Not yet"]}
     ]},
-  { key:"entry_logic", title:"6. LOGIC", color:"#047857",
+  { key:"entry_logic", title:"4. LOGIC", color:"#047857",
     rules:"Disp 15M ALL4 | >0.5 ATR from MO/WO/DO | <1.2 ATR from disp origin | Immediate if disp+OI growth, else wait 1-3 candles",
     fields:[
       {id:"disp",label:"Displacement",opts:[]},
       {id:"opens_dist",label:"MO/WO/DO >0.5ATR",opts:["Yes","Too Close⛔"]},
       {id:"origin_dist",label:"Price <1.2 ATR",opts:["Yes","Too Far⛔"]}
     ]},
-  { key:"trade", title:"7. ENTRY RULES", color:"#ef4444",
+  { key:"trade", title:"5. ENTRY RULES", color:"#ef4444",
     rules:"High: 2%, RR 1:2-1:2.5, immediate | Standard: 1%, RR 1:2, prefer retest | Low: 0.5%, RR 1:2 | Max 1 concurrent BTC/ETH/SOL | Total<3%",
     fields:[
       {id:"corrcheck",label:"BTC/ETH/SOL",opts:["No open trades","Conflict⛔"]}
@@ -1156,6 +1153,99 @@ function computePathTransition() {
   };
 }
 
+// O7.32 (2026-05-03): Market Dynamics — phase-driven model.
+// Two ortogonal axes: Movement (kinetic, last ~1h: MicroView+Now+Moment)
+// and Driver (positioning, last ~2 days: Market+Funding).
+// Combined → Phase (Accumulation/Expansion/Distribution/Reversal/Transition).
+function computeMovementAxis() {
+  // Movement: derived from Path Transition (Pre→Now) + OI 15m (Moment).
+  // Clean = directional path + OI confirms current move.
+  // Conflicting = squeeze→opposite OR path stalls + OI diverges/spikes/against.
+  // Quiet = flat path + OI flat / no engagement.
+  const path = computePathTransition();
+  const oi15 = computeOI15M();
+  const ms = computeMarketState();
+  if (!path && !oi15 && !ms) return null;
+
+  // Quiet: low energy on both planes
+  const isFlatMs = ms === "Flat⛔" || ms === "Absorption";
+  const isFlatOi = !oi15 || oi15 === "Flat↓";
+  if (isFlatMs && isFlatOi) return "Quiet";
+
+  // Conflicting: any signal of disagreement between path and OI
+  if (oi15 && (oi15.includes("Diverge") || oi15.includes("Spike") || oi15.includes("Against"))) return "Conflicting";
+  if (path) {
+    const c = path.category;
+    if (c.includes("squeeze recovery") || c.startsWith("Reversal:") || c.includes("exhaustion") || c.includes("capitulation")) return "Conflicting";
+  }
+
+  // Clean: directional path with OI confirmation
+  if (path) {
+    const c = path.category;
+    if (c.includes("Sustained") || c.includes("Absorption breakout") || c.includes("Activity resumes") || c.includes("breakdown")) {
+      if (oi15 && oi15.includes("Confirms")) return "Clean";
+    }
+  }
+  if (oi15 && oi15.includes("Confirms") && (ms === "Bullish" || ms === "Bearish")) return "Clean";
+
+  // Default fallback when partial data
+  if (ms === "Bullish" || ms === "Bearish") return "Clean";
+  return "Quiet";
+}
+
+function computeDriverAxis() {
+  // Driver: derived from Funding (f_trend, f_price, f_oi @ 8-48h).
+  // Driving = funding aligned with positioning (OK).
+  // Diverging = regime shift / no trade flag (positioning unwinding).
+  // Neutral = stable but non-aligned (Half Risk / Caution / mild signals).
+  const fv = computeFunding();
+  if (!fv) return null;
+  if (fv === "No Trade" || fv.includes("Regime Shift") || fv === "Caution") {
+    if (fv.includes("Regime Shift")) return "Diverging";
+    if (fv === "No Trade") return "Diverging";
+    return "Neutral";
+  }
+  if (fv === "OK") return "Driving";
+  if (fv.includes("↓ Reduce") || fv === "Watch" || fv === "Noise — ignore") return "Neutral";
+  return "Neutral";
+}
+
+function computePhase() {
+  // Phase = Movement × Driver matrix (per v4 spec):
+  //   Quiet+Neutral=Accumulation | Quiet+Driving=Transition | Quiet+Diverging=Distribution
+  //   Clean+Neutral=Expansion    | Clean+Driving=Expansion  | Clean+Diverging=Distribution
+  //   Conflicting+Neutral=Transition | Conflicting+Driving=Transition | Conflicting+Diverging=Reversal
+  const m = computeMovementAxis();
+  const d = computeDriverAxis();
+  if (!m && !d) return null;
+  if (!m || !d) return "Transition"; // partial data → default to Transition
+
+  const grid = {
+    "Quiet|Neutral": "Accumulation", "Quiet|Driving": "Transition", "Quiet|Diverging": "Distribution",
+    "Clean|Neutral": "Expansion",    "Clean|Driving": "Expansion",  "Clean|Diverging": "Distribution",
+    "Conflicting|Neutral": "Transition", "Conflicting|Driving": "Transition", "Conflicting|Diverging": "Reversal"
+  };
+  return grid[`${m}|${d}`] || "Transition";
+}
+
+function computePhaseConfidence() {
+  // Confidence: 2/2 axes aligned for definitive phase (Accumulation/Expansion/Reversal) → High
+  // Distribution can fire on either Quiet+Diverging or Clean+Diverging — count as Standard unless both aligned strongly
+  // Transition is fallback → confidence "—"
+  const m = computeMovementAxis();
+  const d = computeDriverAxis();
+  const phase = computePhase();
+  if (!phase) return null;
+  if (phase === "Transition") return "—";
+  // High when both axes contribute uniquely to the phase verdict
+  if (phase === "Accumulation" && m === "Quiet" && d === "Neutral") return "High";
+  if (phase === "Expansion" && m === "Clean" && d === "Driving") return "High";
+  if (phase === "Reversal" && m === "Conflicting" && d === "Diverging") return "High";
+  // Distribution can be early (Quiet+Diverging) or active (Clean+Diverging) — both legit
+  if (phase === "Distribution") return d === "Diverging" ? "Standard" : "Low";
+  return "Standard";
+}
+
 function computeMode() {
   const regime = state.regime;
   const phase = computeLiquidityPhase();
@@ -1447,6 +1537,36 @@ function buildHTFStatusInline() {
   if (statusWarnings.length) {
     s += `<span style="font-size:10px;color:var(--yellow, #ca8a04);font-weight:600;margin-left:2px" title="${statusWarnings.map(w=>w.title+' ('+w.id+')').join(' · ')}">⚠${statusWarnings.length}</span>`;
   }
+  s += `</span>`;
+  return s;
+}
+
+// O7.32 (2026-05-03): Inline status for Market Dynamics section header.
+// Shows Phase · Movement · Driver · Confidence — matches buildHTFStatusInline style.
+function buildDynamicsStatusInline() {
+  const phase = computePhase();
+  const conf = computePhaseConfidence();
+  const mov = computeMovementAxis();
+  const drv = computeDriverAxis();
+  if (!phase && !mov && !drv) return '';
+
+  const phaseColor = phase === "Reversal" ? "var(--red)" :
+                     phase === "Expansion" ? "var(--green)" :
+                     phase === "Distribution" ? "var(--yellow, #ca8a04)" :
+                     phase === "Accumulation" ? "var(--green)" :
+                     "var(--muted)";
+  const confColor = conf === "High" ? "var(--green)" :
+                    conf === "Standard" ? "var(--yellow, #ca8a04)" :
+                    "var(--muted)";
+  const axisColor = (val) => val === "Clean" || val === "Driving" ? "var(--green)" :
+                              val === "Conflicting" || val === "Diverging" ? "var(--yellow, #ca8a04)" :
+                              "var(--muted)";
+
+  let s = `<span style="font-size:11px;font-weight:400;margin-left:8px;letter-spacing:0.02em">`;
+  if (phase) s += `<span style="color:${phaseColor};font-weight:700;font-size:13px;letter-spacing:0.04em">${phase}</span>`;
+  if (mov)   s += ` <span style="color:var(--muted)">·</span> <span style="color:${axisColor(mov)}">${mov}</span>`;
+  if (drv)   s += `<span style="color:var(--muted)">/</span><span style="color:${axisColor(drv)}">${drv}</span>`;
+  if (conf && conf !== "—") s += ` <span style="color:var(--muted)">·</span> <span style="color:${confColor};font-weight:600">${conf}</span>`;
   s += `</span>`;
   return s;
 }
@@ -1980,17 +2100,17 @@ function render() {
     const g = GROUPS[i];
     const allFilled = g.fields.every(f => f.optional || (f.id === "disp" ? state.disp : state[f.id]));
     const groupStop = g.fields.some(f => STOP.has(state[f.id]));
-    const computedStop = (g.key === "market" && computeMarketState() && computeMarketState().includes("⛔") && !(
+    const computedStop = (g.key === "dynamics" && computeMarketState() && computeMarketState().includes("⛔") && !(
       (computeMarketState() === "L.Squeeze⛔" || computeMarketState() === "S.Squeeze⛔") && state.sqzresol && !state.sqzresol.includes("⛔") && state.sqzresol !== "N/A"
-    )) || (g.key === "oi" && computeOI15M() && computeOI15M().includes("⛔"));
+    )) || (g.key === "dynamics" && computeOI15M() && computeOI15M().includes("⛔"));
     const statusIcon = (groupStop || computedStop) ? '<span class="status-icon" style="color:var(--red)">⛔</span>' : allFilled ? '<span class="status-icon" style="color:var(--green)">✓</span>' : '';
     
-    if (g.key === "market") html += '<div class="col-row">';
     if (g.key === "entry_trigger") html += '<div class="col-row">';
     
     html += `<div class="group" style="border-left:3px solid ${g.color}">`;
     html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}`;
     if (g.key === "htf") html += buildHTFStatusInline();
+    if (g.key === "dynamics") html += buildDynamicsStatusInline();
     html += `</div>`;
     
     if (g.key === "htf") {
@@ -2119,6 +2239,48 @@ function render() {
       html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:6px">`;
       html += renderField(fmap.barrier_above, 2);
       html += renderField(fmap.barrier_below, 2);
+      html += `</div>`;
+    } else if (g.key === "dynamics") {
+      // O7.32 (2026-05-03): Compact 3-column grid for Market Dynamics horizon blocks.
+      // Inline label+pills (no separate label row). Block cards in 3-col layout.
+      const fmap = {};
+      for (const f of g.fields) fmap[f.id] = f;
+
+      const renderDynField = (fieldId, customLabel) => {
+        const f = fmap[fieldId];
+        if (!f) return '';
+        const lbl = customLabel || f.label;
+        let out = `<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:3px">`;
+        out += `<span style="font-size:10px;color:var(--muted);min-width:46px">${lbl}</span>`;
+        out += `<div style="display:flex;flex-wrap:wrap;gap:2px">`;
+        for (const o of f.opts) {
+          const sel = state[f.id] === o;
+          const isStop = STOP.has(o);
+          const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
+          out += `<button class="${cls}" style="padding:2px 6px;font-size:11px" onclick="pick('${f.id}','${o.replace(/'/g,"\\'")}')">${optLabel(o)}</button>`;
+        }
+        out += `</div></div>`;
+        return out;
+      };
+
+      const renderBlock = (header, subtitle, fields) => {
+        let block = `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(139,92,246,0.02)">`;
+        block += `<div style="font-size:10px;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">${header}<span style="color:var(--muted);font-weight:400;margin-left:4px;font-style:italic;font-size:9px;letter-spacing:0.02em">· ${subtitle}</span></div>`;
+        for (const f of fields) block += renderDynField(f.id, f.label);
+        block += `</div>`;
+        return block;
+      };
+
+      // 3-col grid, 2 rows (5 blocks total — last cell empty filler)
+      html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px">`;
+      html += renderBlock("FUNDING",    "up to 2 days view", [{id:"f_trend",label:"Funding:"}, {id:"f_level",label:"|Rate|:"}]);
+      html += renderBlock("MARKET",     "up to 2 days view", [{id:"f_price",label:"Price:"},   {id:"f_oi",label:"OI:"}]);
+      html += renderBlock("MICRO VIEW", "Pre-Now",          [{id:"pricedir_pre",label:"Price:"}, {id:"oidir_pre",label:"OI:"}]);
+      html += `</div>`;
+      html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px">`;
+      html += renderBlock("NOW",        "last few hours",   [{id:"pricedir",label:"Price:"},  {id:"oidir",label:"OI:"}]);
+      html += renderBlock("MOMENT",     "last 15m",         [{id:"oi15_price",label:"Price:"},{id:"oi15_oi",label:"OI:"}]);
+      html += `<div></div>`;
       html += `</div>`;
     } else {
     for (const f of g.fields) {
@@ -2394,46 +2556,12 @@ function render() {
       html += `</div>`;
     }
     
-    if (g.key === "funding") {
-      const fv = computeFunding();
-      const fvColor = fv === "OK" ? "var(--green)" : (fv && fv.includes("✅")) ? "var(--green)" : (fv === "No Trade") ? "var(--red)" : (fv && (fv.includes("↓") || fv === "Caution")) ? "var(--yellow, #ca8a04)" : "var(--muted)";
-      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
-      html += `<span style="font-size:11px;font-weight:600;color:${fvColor}">${fv||"—"}</span>`;
-      html += `</div>`;
-    }
-    if (g.key === "entry_logic") {
-      const dispOK = state.disp === "Pass✅";
-      let style = "—"; let styleColor = "var(--muted)";
-      if (dispOK) { style = "Displacement ✅"; styleColor = "var(--green)"; }
-      else if (state.disp === "Fail⛔") { style = "Displacement ❌"; styleColor = "var(--red)"; }
-      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
-      html += `<span style="font-size:11px;font-weight:600;color:${styleColor}">${style}</span>`;
-      html += `</div>`;
-    }
-    if (g.key === "oi") {
-      // O7.22 (2026-04-29): Cross-field suggest banner — Section 3 ↔ Resolution overlap when squeeze active
-      const s3sug = suggestSection3FromResolution();
-      if (s3sug) {
-        html += `<div style="margin:6px 0;padding:6px 8px;background:rgba(139,92,246,0.08);border-left:2px solid #8b5cf6;font-size:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">`;
-        const parts = [];
-        if (s3sug.oi15_oi) parts.push(`OI 30-60m = <b>${s3sug.oi15_oi}</b>`);
-        if (s3sug.oi15_price) parts.push(`Price 30-60m = <b>${s3sug.oi15_price}</b>`);
-        html += `<span style="color:#8b5cf6"><b>💡 O7.22:</b> ${s3sug.reason}</span>`;
-        html += `<button onclick="applySection3Suggest()" style="font-size:10px;padding:1px 6px;border:1px solid #8b5cf6;background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:3px;cursor:pointer;font-weight:600">Apply ${parts.length > 1 ? "both" : ""}</button>`;
-        html += `</div>`;
-      }
-      const oi15 = computeOI15M();
-      const oi15Color = (oi15 && oi15.includes("✅")) ? "var(--green)" : (oi15 && oi15.includes("↓")) ? "var(--yellow, #ca8a04)" : (oi15 && oi15.includes("⛔")) ? "var(--red)" : "var(--muted)";
-      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
-      html += `<span style="font-size:11px;font-weight:600;color:${oi15Color}">${oi15||"—"}</span>`;
-      html += `</div>`;
-    }
-    if (g.key === "htf") {
-      // Status summary moved to section header via buildHTFStatusInline().
-      // O7.11 — Verbose HTF verdict (collapsed) — toggle in settings.
-      if (isVerboseOn()) html += renderVerboseHTF();
-    }
-    if (g.key === "market") {
+    if (g.key === "dynamics") {
+      // O7.32 (2026-05-03): Market Dynamics — Phase + axes shown INLINE in section header
+      // (via buildDynamicsStatusInline). Below: squeeze resolution + cross-suggest banner +
+      // verdict strip + verbose path block (preserved from old market/oi/funding sections).
+
+      // Squeeze Resolution sub-pills (when current state is squeeze) — preserved from old market section
       const ms = computeMarketState();
       const isSqueeze = ms && (ms === "L.Squeeze⛔" || ms === "S.Squeeze⛔");
       const msStop = ms && ms.includes("⛔");
@@ -2453,25 +2581,42 @@ function render() {
         }
         html += `</div></div>`;
       }
-      // H2.x (2026-04-28): Path Transition annotation — adaptive display
-      // Brief in compact (next to verdict), full block in verbose details
+
+      // O7.22 cross-suggest banner (preserved from old oi section)
+      const s3sug = suggestSection3FromResolution();
+      if (s3sug) {
+        html += `<div style="margin:6px 0;padding:6px 8px;background:rgba(139,92,246,0.08);border-left:2px solid #8b5cf6;font-size:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">`;
+        const parts = [];
+        if (s3sug.oi15_oi) parts.push(`OI 30-60m = <b>${s3sug.oi15_oi}</b>`);
+        if (s3sug.oi15_price) parts.push(`Price 30-60m = <b>${s3sug.oi15_price}</b>`);
+        html += `<span style="color:#8b5cf6"><b>💡 O7.22:</b> ${s3sug.reason}</span>`;
+        html += `<button onclick="applySection3Suggest()" style="font-size:10px;padding:1px 6px;border:1px solid #8b5cf6;background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:3px;cursor:pointer;font-weight:600">Apply ${parts.length > 1 ? "both" : ""}</button>`;
+        html += `</div>`;
+      }
+
+      // Market State badge + Path Transition (preserved from old market section)
       const path = computePathTransition();
       const pre = computeMarketStatePre();
-      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
-      html += `<span style="font-size:13px;font-weight:700;color:${msColor}">${stateLabel}</span>`;
+      const oi15 = computeOI15M();
+      const oi15Color = (oi15 && oi15.includes("✅")) ? "var(--green)" : (oi15 && oi15.includes("↓")) ? "var(--yellow, #ca8a04)" : (oi15 && oi15.includes("⛔")) ? "var(--red)" : "var(--muted)";
+      const fv = computeFunding();
+      const fvColor = fv === "OK" ? "var(--green)" : (fv && fv.includes("✅")) ? "var(--green)" : (fv === "No Trade") ? "var(--red)" : (fv && (fv.includes("↓") || fv === "Caution")) ? "var(--yellow, #ca8a04)" : "var(--muted)";
+
+      // Combined verdict strip (Market State + Path + OI 15M + Funding) at bottom of section
+      html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:12px;align-items:center">`;
+      html += `<span style="font-size:12px;font-weight:700;color:${msColor}">Now: ${stateLabel}</span>`;
       if (path) {
-        // Compact display — category in parens
         const pathColor = path.isEdgeCase ? "var(--muted)" : "var(--yellow, #ca8a04)";
-        html += ` <span style="font-size:11px;color:${pathColor};font-weight:500">(${path.category})</span>`;
+        html += `<span style="font-size:11px;color:${pathColor};font-weight:500">${path.category}</span>`;
       } else if (pre) {
-        // Pre-Market filled but Current not — prompt
-        html += ` <span style="font-size:10px;color:var(--muted);font-weight:400">(fill Market for path)</span>`;
+        html += `<span style="font-size:10px;color:var(--muted)">(fill Now for path)</span>`;
       }
+      if (oi15) html += `<span style="font-size:11px;font-weight:600;color:${oi15Color}">Mom: ${oi15}</span>`;
+      if (fv) html += `<span style="font-size:11px;font-weight:600;color:${fvColor}">Fund: ${fv}</span>`;
       html += `</div>`;
-      // Verbose details — full Path Transition block
+
+      // Verbose path transition block (preserved)
       if (isVerboseOn() && (path || pre)) {
-        // H2.7 fix (2026-04-29): ⛔ marker semantically meaningful only для Current Market State (drives blockers).
-        // For Pre-Market predecessor, ⛔ has no blocker effect — strip it to avoid confusion.
         const stripBlocker = (s) => s ? s.replace(/⛔/g, '').trim() : s;
         const preDisplay = stripBlocker(pre);
         html += `<div style="margin-top:4px;padding:6px 8px;background:rgba(139,92,246,0.05);border-left:2px solid #8b5cf6;font-size:11px;line-height:1.5">`;
@@ -2481,10 +2626,24 @@ function render() {
           html += `<div style="color:var(--muted);font-size:10px;margin-top:4px">${path.interpretation}</div>`;
         } else if (pre) {
           html += `<div><b>Pre-Market State:</b> ${preDisplay}</div>`;
-          html += `<div style="color:var(--muted);font-size:10px;margin-top:2px">Fill Market Price + OI to compute Path Transition.</div>`;
+          html += `<div style="color:var(--muted);font-size:10px;margin-top:2px">Fill Now Price + OI to compute Path Transition.</div>`;
         }
         html += `</div>`;
       }
+    }
+    if (g.key === "entry_logic") {
+      const dispOK = state.disp === "Pass✅";
+      let style = "—"; let styleColor = "var(--muted)";
+      if (dispOK) { style = "Displacement ✅"; styleColor = "var(--green)"; }
+      else if (state.disp === "Fail⛔") { style = "Displacement ❌"; styleColor = "var(--red)"; }
+      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
+      html += `<span style="font-size:11px;font-weight:600;color:${styleColor}">${style}</span>`;
+      html += `</div>`;
+    }
+    if (g.key === "htf") {
+      // Status summary moved to section header via buildHTFStatusInline().
+      // O7.11 — Verbose HTF verdict (collapsed) — toggle in settings.
+      if (isVerboseOn()) html += renderVerboseHTF();
     }
     if (g.extra === "trade_nums") {
       // SECTION 8: AGGREGATOR — all sections combined
@@ -2534,7 +2693,6 @@ function render() {
       html += `</div>`;
     }
     html += `</div>`;
-    if (g.key === "funding") html += '</div>';
     if (g.key === "entry_logic") html += '</div>';
   }
   el.innerHTML = html;
@@ -3073,6 +3231,13 @@ async function skipToNotion() {
   if (oi15) { const oiMap = {"Confirms✅":"Confirms","Against↓":"Against","Flat↓":"Flat","Spike⛔":"Spike","Diverge⛔":"Diverge"}; if (oiMap[oi15]) props["OI Confirm"] = oiMap[oi15]; }
   const phase = computeLiquidityPhase();
   if (phase) { const phaseMap = {"Accumulation":"Accumulation","Post-sweep↓":"Post-sweep","Transition⛔":"Transition"}; if (phaseMap[phase]) props["Liquidity Phase"] = phaseMap[phase]; }
+  // O7.32 (2026-05-03): Market Dynamics — phase + axes
+  const mdPhaseSk = computePhase();
+  if (mdPhaseSk) props["Phase"] = mdPhaseSk;
+  const mdMovSk = computeMovementAxis();
+  if (mdMovSk) props["Movement Axis"] = mdMovSk;
+  const mdDrvSk = computeDriverAxis();
+  if (mdDrvSk) props["Driver Axis"] = mdDrvSk;
   if (Array.isArray(state.extreme) && state.extreme.length) props["Near HTF Extreme"] = state.extreme;
   if (Array.isArray(state.barrier_above) && state.barrier_above.length) props["Barrier Above"] = state.barrier_above;
   if (Array.isArray(state.barrier_below) && state.barrier_below.length) props["Barrier Below"] = state.barrier_below;
@@ -3200,6 +3365,13 @@ async function saveToNotion() {
   // Auto-computed fields
   const phaseSk = computeLiquidityPhase();
   if (phaseSk) { const phaseMap = {"Accumulation":"Accumulation","Post-sweep↓":"Post-sweep","Transition⛔":"Transition"}; if (phaseMap[phaseSk]) props["Liquidity Phase"] = phaseMap[phaseSk]; }
+  // O7.32 (2026-05-03): Market Dynamics — phase + axes
+  const mdPhase = computePhase();
+  if (mdPhase) props["Phase"] = mdPhase;
+  const mdMov = computeMovementAxis();
+  if (mdMov) props["Movement Axis"] = mdMov;
+  const mdDrv = computeDriverAxis();
+  if (mdDrv) props["Driver Axis"] = mdDrv;
   if (Array.isArray(state.extreme) && state.extreme.length) props["Near HTF Extreme"] = state.extreme;
   if (Array.isArray(state.barrier_above) && state.barrier_above.length) props["Barrier Above"] = state.barrier_above;
   if (Array.isArray(state.barrier_below) && state.barrier_below.length) props["Barrier Below"] = state.barrier_below;

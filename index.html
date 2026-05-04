@@ -167,7 +167,9 @@ const OPT_LABELS = {
   "Mid-Range": "Mid",
   "Rising": "Up",
   "Falling": "Down",
-  "Growth": "Up"
+  "Growth": "Up",
+  // "Round Number" too wide for narrow grid cells (Liq + Barrier) — universal "Round #" shorthand.
+  "Round Number": "Round #"
 };
 function optLabel(o) { return OPT_LABELS[o] || o; }
 
@@ -2484,13 +2486,29 @@ function render() {
         let out = `<div class="${disabledCls}"><div class="row" style="margin-bottom:2px"><span class="lbl">${tipHtml}${computed}</span></div>`;
         const pillsStyle = gridCols > 0 ? ` style="display:grid;grid-template-columns:repeat(${gridCols},1fr);gap:4px"` : '';
         out += `<div class="pills"${pillsStyle}>`;
+        // 2026-05-04: For Liq.Above/Below — visual tier grouping via left-edge inset accent stripe per button.
+        // Major=green, Medium=yellow, Minor=red. Stripe stays on selected/unselected so tier is always visible.
+        const isDrawLevel = (f.id === "draw_level_above" || f.id === "draw_level_below");
+        const tierColor = (tier) => tier === "Major" ? "#4ade80" : tier === "Medium" ? "#ca8a04" : tier === "Minor" ? "#f87171" : null;
+        // Barriers — different semantic: HTF FVG = weak (passes through), others = strong barrier (real obstacle).
+        // Visual: HTF FVG gray (low warning), strong barriers red (warning — could block trade).
+        const isBarrier = (f.id === "barrier_above" || f.id === "barrier_below");
+        const barrierColor = (opt) => opt === "HTF FVG" ? "#9ca3af" : (opt === "OB" || opt === "Wick SNR" || opt === "Round Number") ? "#f87171" : null;
         for (const o of f.opts) {
           const sel = f.multi ? (Array.isArray(state[f.id]) && state[f.id].includes(o)) : state[f.id] === o;
           const isStop = STOP.has(o);
           const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
           const disabledAttr = disabled ? " disabled" : "";
           const clickFn = f.multi ? "pickMulti" : "pick";
-          out += `<button class="${cls}"${disabledAttr} onclick="${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')">${optLabel(o)}</button>`;
+          let extraStyle = "";
+          if (isDrawLevel) {
+            const tc = tierColor(drawLevelStrength(o));
+            if (tc) extraStyle = ` style="box-shadow:inset 3px 0 0 ${tc};padding-left:11px"`;
+          } else if (isBarrier) {
+            const bc = barrierColor(o);
+            if (bc) extraStyle = ` style="box-shadow:inset 3px 0 0 ${bc};padding-left:11px"`;
+          }
+          out += `<button class="${cls}"${disabledAttr}${extraStyle} onclick="${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')">${optLabel(o)}</button>`;
         }
         out += `</div></div>`;
         return out;
@@ -2555,11 +2573,15 @@ function render() {
       }
       let extInner = `<div class="row" style="margin-bottom:2px"><span class="lbl"><span class="tip">Near HTF Extreme ⓘ<span class="tip-box">${extremeTooltipText}</span></span>${strengthDisplay}</span></div>`;
       extInner += `<div class="pills" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px">`;
+      // 2026-05-04: Tier accent stripe per option (Major=green, Medium=yellow). Only Major/Medium tiers exist for extreme.
+      const extremeTierColor = (tier) => tier === "Major" ? "#4ade80" : tier === "Medium" ? "#ca8a04" : null;
       for (let i = 0; i < extremeF.opts.length; i++) {
         const o = extremeF.opts[i];
         const sel = extremeSelected.includes(o);
         const cls = sel ? 'pill sel' : 'pill';
-        extInner += `<button class="${cls}" onclick="pickMulti('extreme','${o.replace(/'/g,"\\'")}')">${o}</button>`;
+        const tc = extremeTierColor(extremeStrength(o));
+        const stripeStyle = tc ? ` style="box-shadow:inset 3px 0 0 ${tc};padding-left:11px"` : '';
+        extInner += `<button class="${cls}"${stripeStyle} onclick="pickMulti('extreme','${o.replace(/'/g,"\\'")}')">${o}</button>`;
         // Insert price input immediately after the last selected pill
         if (i === lastSelectedIdx) {
           const extremePriceVal = (state.price_near_extreme !== undefined && state.price_near_extreme !== null) ? state.price_near_extreme : "";
@@ -2576,14 +2598,16 @@ function render() {
       html += `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${extInner}</div>`;
       // Row 4: TARGETS card (Liq Above + Liq Below)
       let targetsInner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">`;
-      targetsInner += renderField(fmap.draw_level_above, 3);
-      targetsInner += renderField(fmap.draw_level_below, 3);
+      // 2026-05-04: 12 opts × 4 cols = 3 rows (was 3 cols × 4 rows) per user — more compact vertically.
+      targetsInner += renderField(fmap.draw_level_above, 4);
+      targetsInner += renderField(fmap.draw_level_below, 4);
       targetsInner += `</div>`;
       html += `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${targetsInner}</div>`;
       // Row 5: BARRIERS card (Barrier Above + Barrier Below)
       let barriersInner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">`;
-      barriersInner += renderField(fmap.barrier_above, 2);
-      barriersInner += renderField(fmap.barrier_below, 2);
+      // 2026-05-04: 4 opts × 4 cols = 1 row per user (was 2×2). "Round Number" shortened globally to "Round #" via OPT_LABELS.
+      barriersInner += renderField(fmap.barrier_above, 4);
+      barriersInner += renderField(fmap.barrier_below, 4);
       barriersInner += `</div>`;
       html += `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${barriersInner}</div>`;
     } else if (g.key === "dynamics") {

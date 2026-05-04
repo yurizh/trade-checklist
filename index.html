@@ -130,6 +130,10 @@
 <div id="checklist"></div>
 
 <div class="footer">
+  <div class="footer-row" style="align-items:flex-start">
+    <span class="lbl" style="padding-top:6px">Notes</span>
+    <textarea class="mini-input flex" id="notes" rows="1" placeholder="observations, context..." style="min-height:24px;height:24px;resize:vertical;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;overflow:hidden" oninput="localStorage.setItem('tc_notes',this.value);autoGrowNotes(this)"></textarea>
+  </div>
   <div class="footer-row">
     <span class="lbl">Screenshot</span>
     <input class="mini-input flex" id="screenshot" placeholder="https://..." oninput="localStorage.setItem('tc_screenshot',this.value)">
@@ -594,7 +598,8 @@ function horizonClassColor(klass) {
 // Called by render() loop at the right point inside trade group (after Trigger/Confirm/Disp fields).
 // Builds: ATR row + Geometry price fields + DISTANCES panel + Geometry Analysis.
 function renderTradeGeometry() {
-  let html = "";
+  // 2026-05-04: Wrapped in frame card to match HTF/Dynamics style. Card contains: ATR row + price inputs + DISTANCES.
+  let html = `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(239,68,68,0.02);margin-top:6px">`;
   // ─── ATR row ────────────────────────────────────────────────────────────
   const atrTooltip1H = "<strong>ATR(14) @ 1H — for Intraday horizon</strong>\nValue of ATR(14) RMA on 1H timeframe. Read from Displacement Scanner table → MARKET CONTEXT section → 'ATR 1H' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 hour\n\n<strong>Used in distance checks (Intraday horizon only):</strong>\n• Barrier active if distance ≤ 2× ATR(1H)\n• Target premature if distance > 4× ATR(1H)\n• Post-sweep digestion if distance from swept extreme > 2× ATR(1H)\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
   const atrTooltipD = "<strong>ATR(14) @ 1D — for Swing horizon</strong>\nValue of ATR(14) RMA on Daily timeframe. Read from Displacement Scanner table → MARKET CONTEXT section → 'ATR D' row.\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 day\n\n<strong>Used in distance checks (Swing horizon only):</strong>\n• Barrier active if distance ≤ 1× ATR(D)\n• Target premature if distance > 2.5× ATR(D)\n• Post-sweep digestion if distance from swept extreme > 1× ATR(D)\n\n<em>Multipliers (2.5× / 1×) are starting calibration — validate after 10-20 swing setups.</em>\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
@@ -608,7 +613,7 @@ function renderTradeGeometry() {
   const atrDActive = horizonCurrent === "Swing";
   const activeBorder = "2px solid var(--green)";
   const inactiveBorder = "1px solid var(--border)";
-  html += `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">`;
+  html += `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">`;
   html += `<div style="display:flex;align-items:center;gap:8px">`;
   html += `<span class="lbl" style="${atr1hActive ? 'color:var(--green);font-weight:700' : ''}"><span class="tip">ATR(14) @ 1H ⓘ<span class="tip-box">${atrTooltip1H}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
   html += `<input type="text" inputmode="decimal" id="inp_atr_1h" class="mini-input" style="width:80px;border:${atr1hActive ? activeBorder : inactiveBorder}" placeholder="e.g. 0.5" value="${atrCurrent1H}" onchange="setATR1H(this.value)" onblur="setATR1H(this.value)">`;
@@ -644,7 +649,7 @@ function renderTradeGeometry() {
   const priceBarrierBelowTooltip = priceBarrierAboveTooltip.replace(/Above/g, "Below").replace(/above/g, "below");
   const priceBarrierBelow2Tooltip = priceBarrierAbove2Tooltip.replace(/Above/g, "Below").replace(/above/g, "below");
   const priceStopTooltip = "<strong>Stop Price</strong>\nWhere your stop-loss order sits.\n\nUsed for:\n• DISTANCES panel — Stop row shows distance + ATR ratios for empirical calibration\n• R-multiple computation — TP1/TP2 RR labels (1:2, 1:3, etc.) calculated from Entry-Stop distance\n\nFor Long: Stop below Entry. For Short: Stop above Entry.";
-  html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);gap:12px;align-items:center;flex-wrap:wrap">`;
+  html += `<div class="row" style="margin-top:6px;gap:12px;align-items:center;flex-wrap:wrap">`;
   // 2026-05-04: Removed leading "Geometry ⓘ" label per user — each price field has its own label.
   const renderPriceField = (field, label, tooltip, placeholder) => {
     const cur = state["price_" + field];
@@ -678,9 +683,11 @@ function renderTradeGeometry() {
   }
   html += `</div>`;
 
-  // ─── DISTANCES panel + Geometry Analysis ────────────────────────────────
+  // ─── DISTANCES panel ────────────────────────────────────────────────────
   html += renderDistancesPanel();
-  html += renderGeometryAnalysis();
+  html += `</div>`;  // close GEOMETRY card
+  // 2026-05-04: Deal Details button + Geometry Analysis moved to top of Market Deal section
+  // (right under section title via per-section toggle pattern).
   return html;
 }
 
@@ -777,10 +784,6 @@ function renderDistancesPanel() {
   out += `</div>`;
   return out;
 }
-
-// 2026-05-04: Geometry analysis block — moved from verbose Details panel to render under main Geometry section.
-// Shows per-target reachability vs active ATR, barrier path-aware analysis, near-extreme digestion check.
-// Renders only if any price field is filled. Gated behind verbose toggle (only visible when Details ON).
 function renderGeometryAnalysis() {
   if (!isVerboseOn()) return "";
   const anyPriceSet = state.price_current !== undefined || state.price_target_above !== undefined ||
@@ -905,7 +908,7 @@ function renderGeometryAnalysis() {
   if (areSuggestionsOn() && !state.wait_sub_type) {
     const hzSuggest = suggestTradeHorizon();
     if (hzSuggest) {
-      out += `<div style="margin:6px 0;padding:6px 8px;background:rgba(139,92,246,0.08);border-left:2px solid #8b5cf6;font-size:10px">`;
+      out += `<div style="margin:6px 0;padding:6px 8px;background:rgba(139,92,246,0.1);border-radius:4px;font-size:10px">`;
       if (hzSuggest.allOutOfRange) {
         out += `<span style="color:#8b5cf6;font-weight:600">💡 H8.4 suggestion:</span> ${hzSuggest.reason}`;
       } else {
@@ -927,6 +930,49 @@ function renderGeometryAnalysis() {
       out += `</div>`;
     }
   }
+
+  // 2026-05-04: Position Sizing math — added per user. Concrete position size + leverage based on Account, Risk%, Entry, Stop.
+  // Renders only when Account + Risk% + Entry + Stop all filled. Otherwise shows a hint listing missing inputs.
+  const accountStr = localStorage.getItem('tc_account');
+  const riskStr = localStorage.getItem('tc_risk');
+  const accountNum = accountStr ? parseFloat(accountStr) : null;
+  const riskNum = riskStr ? parseFloat(riskStr) : null;
+  const entryPrice = state.price_current;
+  const stopPrice = state.price_stop;
+  if (accountNum > 0 && riskNum > 0 && entryPrice > 0 && stopPrice > 0 && entryPrice !== stopPrice) {
+    const riskAmount = accountNum * riskNum / 100;
+    const stopDistAbs = Math.abs(entryPrice - stopPrice);
+    const stopDistPct = stopDistAbs / entryPrice * 100;
+    const positionUnits = riskAmount / stopDistAbs;
+    const positionUSD = positionUnits * entryPrice;
+    const leverage = positionUSD / accountNum;
+    const fmtUnits = (u) => u >= 1 ? u.toFixed(3) : u >= 0.001 ? u.toFixed(5) : u.toExponential(2);
+    const fmtUSD = (n) => n.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 2});
+    const asset = state.asset || "asset";
+    const leverageColor = leverage <= 1 ? "var(--green)" : leverage <= 3 ? "var(--yellow, #ca8a04)" : "var(--red)";
+    const leverageNote = leverage <= 1 ? "no leverage needed" : leverage <= 3 ? "moderate leverage" : "⚠ high leverage";
+    out += `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border)">`;
+    out += `<div style="font-weight:700;color:var(--muted);margin-bottom:4px;letter-spacing:0.05em;font-size:10px">POSITION SIZING <span style="font-weight:400;font-style:italic">· concrete numbers</span></div>`;
+    out += `<div style="padding-left:12px;font-size:10px;line-height:1.7">`;
+    out += `<div>Risk amount: <b>$${fmtUSD(riskAmount)}</b> <span style="color:var(--muted)">($${fmtUSD(accountNum)} × ${riskNum}%)</span></div>`;
+    out += `<div>Stop distance: <b>$${fmtUSD(stopDistAbs)}</b> <span style="color:var(--muted)">(${stopDistPct.toFixed(2)}% of entry)</span></div>`;
+    out += `<div>Position size: <b>${fmtUnits(positionUnits)} ${asset}</b> <span style="color:var(--muted)">≈ $${fmtUSD(positionUSD)}</span></div>`;
+    out += `<div>Leverage: <b style="color:${leverageColor}">${leverage.toFixed(2)}×</b> <span style="color:var(--muted);font-style:italic">(${leverageNote})</span></div>`;
+    out += `</div>`;
+    out += `</div>`;
+  } else {
+    const missing = [];
+    if (!accountNum || accountNum <= 0) missing.push("Account $");
+    if (!riskNum || riskNum <= 0) missing.push("Risk %");
+    if (!entryPrice || entryPrice <= 0) missing.push("Entry Price");
+    if (!stopPrice || stopPrice <= 0) missing.push("Stop Price");
+    if (missing.length && missing.length < 4) {
+      out += `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);font-size:10px;color:var(--muted)">`;
+      out += `<b>POSITION SIZING:</b> fill ${missing.join(", ")} to compute concrete size + leverage.`;
+      out += `</div>`;
+    }
+  }
+
   out += `</div>`;
   return out;
 }
@@ -2100,9 +2146,8 @@ function renderVerboseHTF() {
   };
 
   let out = "";
-  // UX 2026-04-29: Details toggle moved to Notes row (replaces ＋ TP1/TP2 button).
-  // Render content only when user explicitly opens via the Details button.
-  if (localStorage.getItem('tc_details_open') !== '1') return "";
+  // 2026-05-04: Per-section Details — this verbose breakdown belongs to Market Context (htf).
+  if (!isDetailsOn('htf')) return "";
   out += `<div style="margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6">`;
   out += `<div style="padding:8px 6px 4px 6px;background:var(--bg-alt,rgba(0,0,0,0.02));border-radius:4px">`;
   // 2-column grid: Col1 = Direction, Mode, Phase, Extreme · Col2 = Conviction, Blockers, Warnings
@@ -2282,11 +2327,21 @@ function autoGrowNotes(el) {
   el.style.overflowY = el.scrollHeight > 300 ? "auto" : "hidden";
 }
 
-// UX 2026-04-29: Details panel toggle — replaces native <details> element с persisted state
-function toggleDetails() {
-  const cur = localStorage.getItem('tc_details_open') === '1';
-  localStorage.setItem('tc_details_open', cur ? '0' : '1');
+// 2026-05-04: Per-section Details toggles (was global toggle). Each section owns its own breakdown panel.
+// Keys: tc_details_htf_open, tc_details_dynamics_open, tc_details_deal_open.
+// Legacy tc_details_open removed; users start fresh with all sections collapsed.
+function isDetailsOn(section) {
+  return localStorage.getItem('tc_details_' + section + '_open') === '1';
+}
+function toggleSectionDetails(section) {
+  const key = 'tc_details_' + section + '_open';
+  const cur = localStorage.getItem(key) === '1';
+  localStorage.setItem(key, cur ? '0' : '1');
   render();
+}
+function renderDetailsButton(section) {
+  const open = isDetailsOn(section);
+  return `<button type="button" onclick="toggleSectionDetails('${section}')" title="Toggle this section's analytical breakdown" style="padding:2px 8px;font-size:10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;white-space:nowrap;margin-left:auto;font-weight:400;letter-spacing:0">${open ? '▼ Details' : '▶ Details'}</button>`;
 }
 
 // H1.19 — TP1/TP2 template: auto-fill Notes with current Liq./Barrier selection + verdict + blank template
@@ -2349,11 +2404,13 @@ function render() {
     // Trade group div opens here (BEFORE geometry rendering) so all geometry content lives inside ENTRY.
     if (g.key === "trade") {
       html += `<div class="group" style="border-left:3px solid ${g.color}">`;
-      html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}${buildDealStatusInline()}</div>`;
-      // 2026-05-04: Trigger + Confirm + Displacement on single row (per user — compact entry signals).
-      // Rendered manually here (skipped in standard field loop below).
+      html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}${buildDealStatusInline()}${renderDetailsButton('deal')}</div>`;
+      // 2026-05-04: Per-section Details — Geometry Analysis renders right under title when expanded.
+      if (isDetailsOn('deal')) html += renderGeometryAnalysis();
+      // 2026-05-04: SIGNAL card — Trigger/Confirm/Disp/Actuals/Confluence wrapped in frame card (matches HTF/Dynamics style).
       const trigCurrent = state.trigger || "";
       const conCurrent = state.confirm || "";
+      html += `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(239,68,68,0.02);margin-top:6px">`;
       html += `<div class="row" style="gap:14px;align-items:center;flex-wrap:wrap">`;
       // Trigger
       html += `<div style="display:flex;align-items:center;gap:4px">`;
@@ -2371,7 +2428,7 @@ function render() {
         html += `<button class="${cls}" onclick="pick('confirm','${opt}')">${opt}</button>`;
       }
       html += `</div>`;
-      // Displacement (4 checkboxes + Pass/Fail)
+      // Displacement (5 checkboxes + Pass/Fail)
       html += `<div style="display:flex;align-items:center;gap:4px">`;
       html += `<span class="lbl">Disp</span>`;
       html += `<div class="disp-row">`;
@@ -2405,6 +2462,7 @@ function render() {
       }
       html += `</div>`;
       html += `</div>`;
+      html += `</div>`;  // close SIGNAL card
     }
     // 2026-05-04: Geometry rendering (ATR + price fields + DISTANCES + Analysis) extracted to renderTradeGeometry().
     // Called LATER (right before trade_nums) so Trigger/Confirm/Displacement render FIRST in MARKET DEAL section.
@@ -2414,7 +2472,45 @@ function render() {
       html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}`;
       if (g.key === "htf") html += buildHTFStatusInline();
       if (g.key === "dynamics") html += buildDynamicsStatusInline();
+      html += renderDetailsButton(g.key);
       html += `</div>`;
+      // 2026-05-04: Per-section Details — verbose breakdown renders right under title (above fields).
+      if (g.key === "htf" && isDetailsOn('htf')) {
+        html += renderVerboseHTF();
+      }
+      if (g.key === "dynamics" && isDetailsOn('dynamics')) {
+        const path = computePathTransition();
+        const pre = computeMarketStatePre();
+        const ms = computeMarketState();
+        // 2026-05-04: Mom + Fund derived verdicts — moved here from old bottom strip per user.
+        const oi15 = computeOI15M();
+        const oi15Color = (oi15 && oi15.includes("✅")) ? "var(--green)" : (oi15 && oi15.includes("↓")) ? "var(--yellow, #ca8a04)" : (oi15 && oi15.includes("⛔")) ? "var(--red)" : "var(--muted)";
+        const fv = computeFunding();
+        const fvColor = fv === "OK" ? "var(--green)" : (fv && fv.includes("✅")) ? "var(--green)" : (fv === "No Trade") ? "var(--red)" : (fv && (fv.includes("↓") || fv === "Caution")) ? "var(--yellow, #ca8a04)" : "var(--muted)";
+        const hasAny = path || pre || oi15 || fv;
+        if (hasAny) {
+          const stripBlocker = (s) => s ? s.replace(/⛔/g, '').trim() : s;
+          const preDisplay = stripBlocker(pre);
+          html += `<div style="margin-top:6px;padding:0;font-size:11px;line-height:1.5">`;
+          if (path) {
+            html += `<div><b>Path Transition:</b> ${path.category}</div>`;
+            html += `<div style="color:var(--muted);font-size:10px;margin-top:2px">Predecessor: ${preDisplay || '—'} → Current: ${ms || '—'}</div>`;
+            html += `<div style="color:var(--muted);font-size:10px;margin-top:4px">${path.interpretation}</div>`;
+          } else if (pre) {
+            html += `<div><b>Pre-Market State:</b> ${preDisplay}</div>`;
+            html += `<div style="color:var(--muted);font-size:10px;margin-top:2px">Fill Now Price + OI to compute Path Transition.</div>`;
+          }
+          // Derived verdicts: Mom (OI 15m) + Fund (Funding regime). Inline row for compactness.
+          if (oi15 || fv) {
+            const sep = (path || pre) ? `margin-top:6px;padding-top:6px;border-top:1px solid var(--border);` : "";
+            html += `<div style="display:flex;flex-wrap:wrap;gap:14px;${sep}font-size:11px">`;
+            if (oi15) html += `<span><b style="color:var(--muted)">Mom:</b> <span style="color:${oi15Color};font-weight:600">${oi15}</span></span>`;
+            if (fv)   html += `<span><b style="color:var(--muted)">Fund:</b> <span style="color:${fvColor};font-weight:600">${fv}</span></span>`;
+            html += `</div>`;
+          }
+          html += `</div>`;
+        }
+      }
     }
     
     if (g.key === "htf") {
@@ -2809,7 +2905,7 @@ function render() {
       // O7.22 cross-suggest banner (preserved from old oi section)
       const s3sug = suggestSection3FromResolution();
       if (s3sug) {
-        html += `<div style="margin:6px 0;padding:6px 8px;background:rgba(139,92,246,0.08);border-left:2px solid #8b5cf6;font-size:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">`;
+        html += `<div style="margin:6px 0;padding:6px 8px;background:rgba(139,92,246,0.1);border-radius:4px;font-size:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">`;
         const parts = [];
         if (s3sug.oi15_oi) parts.push(`OI 30-60m = <b>${s3sug.oi15_oi}</b>`);
         if (s3sug.oi15_price) parts.push(`Price 30-60m = <b>${s3sug.oi15_price}</b>`);
@@ -2826,57 +2922,19 @@ function render() {
       const fv = computeFunding();
       const fvColor = fv === "OK" ? "var(--green)" : (fv && fv.includes("✅")) ? "var(--green)" : (fv === "No Trade") ? "var(--red)" : (fv && (fv.includes("↓") || fv === "Caution")) ? "var(--yellow, #ca8a04)" : "var(--muted)";
 
-      // Combined verdict strip (Market State + Path + OI 15M + Funding) at bottom of section
-      html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:12px;align-items:center">`;
-      html += `<span style="font-size:12px;font-weight:700;color:${msColor}">Now: ${stateLabel}</span>`;
-      if (path) {
-        const pathColor = path.isEdgeCase ? "var(--muted)" : "var(--yellow, #ca8a04)";
-        html += `<span style="font-size:11px;color:${pathColor};font-weight:500">${path.category}</span>`;
-      } else if (pre) {
-        html += `<span style="font-size:10px;color:var(--muted)">(fill Now for path)</span>`;
-      }
-      if (oi15) html += `<span style="font-size:11px;font-weight:600;color:${oi15Color}">Mom: ${oi15}</span>`;
-      if (fv) html += `<span style="font-size:11px;font-weight:600;color:${fvColor}">Fund: ${fv}</span>`;
-      html += `</div>`;
+      // 2026-05-04: Bottom Now/Mom/Fund strip removed per user — duplicated header (overall ⛔ marker, Phase)
+      // and Path Transition (Current state). Match Market Context pattern: only header + verbose Details.
+      // Note: ms/sqz/path/pre/oi15/fv computations above are still used by header inline status (buildDynamicsStatusInline)
+      // and Path Transition verbose block (rendered under section title when Details expanded).
 
-      // O7.32 (2026-05-03): Notes textarea — moved from S1 here (under Market Dynamics).
-      html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);gap:6px;align-items:flex-start">`;
-      html += `<span class="lbl" style="padding-top:6px">Notes</span>`;
-      html += `<textarea class="mini-input flex" id="notes" rows="1" placeholder="observations, context..." style="min-height:24px;height:24px;resize:vertical;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;overflow:hidden" oninput="localStorage.setItem('tc_notes',this.value);autoGrowNotes(this)"></textarea>`;
-      const detailsOpen = localStorage.getItem('tc_details_open') === '1';
-      html += `<button type="button" onclick="toggleDetails()" title="Toggle verbose Details panel — full Mode/Conviction/Blockers/Warnings breakdown" style="padding:4px 8px;font-size:10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;white-space:nowrap;margin-top:2px">${detailsOpen ? '▼ Details' : '▶ Details'}</button>`;
-      html += `</div>`;
+      // 2026-05-04: Notes moved to footer (above Screenshot field) per user.
+      // Dynamics-section Details button moved to section title (right side) per user.
     }
 
-    // H8.3 (2026-04-29): B2 inputs added — visible when ≥2 barriers selected on side
-    // UX (2026-04-29 / moved 2026-05-03): Horizon row + Geometry — moved under Market Dynamics with Notes.
-    // O7.32 (2026-05-03): Verbose details (path transition + HTF analysis) — fires AFTER Geometry,
-    // so visual flow is: dynamics fields → verdict strip → Notes → Horizon/ATR → Geometry → Verbose Details.
-    if (g.key === "dynamics" && isVerboseOn()) {
-      const path = computePathTransition();
-      const pre = computeMarketStatePre();
-      const ms = computeMarketState();
-      if (path || pre) {
-        const stripBlocker = (s) => s ? s.replace(/⛔/g, '').trim() : s;
-        const preDisplay = stripBlocker(pre);
-        html += `<div style="margin-top:6px;padding:6px 8px;background:rgba(139,92,246,0.05);border-left:2px solid #8b5cf6;font-size:11px;line-height:1.5">`;
-        if (path) {
-          html += `<div><b>Path Transition:</b> ${path.category}</div>`;
-          html += `<div style="color:var(--muted);font-size:10px;margin-top:2px">Predecessor: ${preDisplay || '—'} → Current: ${ms || '—'}</div>`;
-          html += `<div style="color:var(--muted);font-size:10px;margin-top:4px">${path.interpretation}</div>`;
-        } else if (pre) {
-          html += `<div><b>Pre-Market State:</b> ${preDisplay}</div>`;
-          html += `<div style="color:var(--muted);font-size:10px;margin-top:2px">Fill Now Price + OI to compute Path Transition.</div>`;
-        }
-        html += `</div>`;
-      }
-      html += renderVerboseHTF();
-    }
+    // 2026-05-04: Old end-of-section verbose blocks removed — verbose now renders right under section title (above fields).
+    // Old code was: `if (g.key === "dynamics" && isDetailsOn('dynamics')) { ...path transition... }`
+    // and `if (g.key === "htf") { ...details button + renderVerboseHTF... }` — moved to title-adjacent.
 
-    if (g.key === "htf") {
-      // Status summary moved to section header via buildHTFStatusInline().
-      // O7.32 (2026-05-03): Verbose details panel moved to Market Dynamics section (consolidated).
-    }
     if (g.extra === "trade_nums") {
       // 2026-05-04: Restructured into 3 cards (COMMITMENTS / SIZING / VERDICT) per user.
       // Geometry (ATR + Entry/Stop/TPs + DISTANCES + Analysis) rendered HERE — after Trigger/Confirm/Disp standard fields above.
@@ -2934,44 +2992,45 @@ function render() {
       const cardStyle = `padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(239,68,68,0.02);margin-top:6px`;
       const cardHeaderStyle = `font-size:10px;font-weight:700;letter-spacing:0.06em;margin-bottom:5px;color:var(--muted)`;
 
-      // ─── CARD 1: COMMITMENTS (frame-only style — header dropped 2026-05-04 per user, matches HTF cards) ─
+      // ─── POSITION CARD (frame-only) — COMMITMENTS + SIZING merged 2026-05-04 ───
+      // Hold Intent + corrcheck + Wait + Sizing all in one card (saves vertical space).
       html += `<div style="${cardStyle}">`;
-      // Hold Intent + Corr row
-      html += `<div class="row" style="margin-bottom:6px;align-items:center">`;
+      // Hold Intent + corrcheck + Wait — single row per user 2026-05-04
+      html += `<div class="row" style="margin-bottom:6px;align-items:center;flex-wrap:wrap;gap:14px">`;
+      // Hold Intent
+      html += `<div style="display:flex;align-items:center;gap:4px">`;
       html += `<span class="lbl"><span class="tip">Hold Intent ⓘ<span class="tip-box">${holdIntentTooltip}</span></span></span>`;
       html += `<button class="${hiIntradayCls}" onclick="pick('trade_horizon','Intraday')">Intraday</button>`;
       html += `<button class="${hiSwingCls}" onclick="pick('trade_horizon','Swing')">Swing</button>`;
-      // 2026-05-04: Correlation check only relevant for ETH/SOL — for BTC there's no upstream correlated asset to conflict with.
-      // Render only when asset != BTC (or when asset not yet picked, to keep field discoverable).
+      html += `</div>`;
+      // 2026-05-04: Correlation check only relevant for ETH/SOL — for BTC there's no upstream correlated asset.
       const showCorrcheck = state.asset && state.asset !== "BTC";
       if (showCorrcheck) {
-        html += `<span style="color:var(--muted);margin:0 8px">·</span>`;
+        html += `<div style="display:flex;align-items:center;gap:4px">`;
         html += `<span class="lbl"><span class="tip">BTC/ETH/SOL ⓘ<span class="tip-box">${corrCheckTooltip}</span></span></span>`;
         html += `<button class="${ccNoOpenCls}" onclick="pick('corrcheck','No open trades')">No open trades</button>`;
         html += `<button class="${ccConflictCls}" onclick="pick('corrcheck','Conflict⛔')">Conflict⛔</button>`;
+        html += `</div>`;
       }
-      html += `</div>`;
-      // Wait Mode row
-      html += `<div class="row" style="margin-bottom:0;align-items:center">`;
+      // Wait
+      html += `<div style="display:flex;align-items:center;gap:4px">`;
       html += `<span class="lbl"><span class="tip">Wait ⓘ<span class="tip-box">${waitTooltipShort}</span></span></span>`;
       html += `<button class="${wsPostCls}"    onclick="pick('wait_sub_type','post_sweep_digestion')">post-sweep</button>`;
       html += `<button class="${wsTargetCls}"  onclick="pick('wait_sub_type','target_premature')">target far</button>`;
       html += `<button class="${wsBarrierCls}" onclick="pick('wait_sub_type','inside_barrier')">inside barrier</button>`;
       html += `<button class="${wsHtfCls}"     onclick="pick('wait_sub_type','htf_pending')">htf ready</button>`;
       if (wsCurrent) {
-        html += `<span style="font-size:10px;color:var(--yellow,#ca8a04);font-weight:600;margin-left:6px">⚠ Wait active</span>`;
+        html += `<span style="font-size:10px;color:var(--yellow,#ca8a04);font-weight:600;margin-left:4px">⚠ Wait active</span>`;
       }
       html += `</div>`;
       html += `</div>`;
-
-      // ─── CARD 2: SIZING (frame-only) ─────────────────────────────────────
-      html += `<div style="${cardStyle}">`;
-      html += `<div class="row" style="align-items:center">`;
+      // Sizing row — thin top divider separates "commitment" rows from "size" row inside same card.
+      html += `<div class="row" style="align-items:center;margin-bottom:0;padding-top:6px;border-top:1px solid rgba(239,68,68,0.15)">`;
       html += `<span class="lbl">Account $</span><input class="mini-input" id="inp_account" oninput="saveInput(this)">`;
       html += `<span class="lbl" style="margin-left:14px">Risk %</span><input class="mini-input w48" id="inp_risk" oninput="saveInput(this)">`;
       html += `<span style="font-size:11px;color:var(--muted);margin-left:14px">suggested: <b style="color:${convColor}">${riskPctSuggested}</b> <span style="font-style:italic">(based on ${convLabel||"—"} Conviction)</span></span>`;
       html += `</div>`;
-      html += `</div>`;
+      html += `</div>`;  // close POSITION card
 
       // 2026-05-04: Bottom VERDICT card removed per user — same status line is now rendered inline in
       // "MARKET DEAL" header via buildDealStatusInline() (matches HTF Context / Market Dynamics pattern).
@@ -3415,9 +3474,9 @@ function saveCfg() {
   if (s) localStorage.setItem("tc_show_suggestions", s.checked ? "1" : "0");
 }
 function isVerboseOn() {
-  // 2026-05-04: Unified with inline "▶ Details" button (tc_details_open).
-  // Default OFF — verbose blocks (Path Transition, Geometry Analysis, Verbose HTF) only show when Details expanded.
-  return localStorage.getItem("tc_details_open") === "1";
+  // 2026-05-04: Per-section Details toggles. This function specifically controls Market Deal's
+  // Geometry Analysis (renderGeometryAnalysis). Other sections use isDetailsOn(section) directly.
+  return isDetailsOn('deal');
 }
 
 // 2026-05-04: Suggestions toggle (H8.4 horizon, O7.17 target, H1.25 sweep digestion).

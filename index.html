@@ -92,8 +92,6 @@
   <div class="header-title" style="display:flex;align-items:center;gap:14px;font-size:13px;letter-spacing:0.04em;font-weight:700;flex-wrap:wrap">
     <span style="display:inline-flex;align-items:center;gap:6px"><span class="lbl" style="font-size:11px;font-weight:600">Asset</span>
       <button class="pill" onclick="pickTop('asset','BTC')" id="pill_asset_BTC">BTC</button>
-      <button class="pill" onclick="pickTop('asset','ETH')" id="pill_asset_ETH">ETH</button>
-      <button class="pill" onclick="pickTop('asset','SOL')" id="pill_asset_SOL">SOL</button>
       <input type="text" id="asset_custom" placeholder="Other" oninput="setCustomAsset(this.value)" onblur="setCustomAsset(this.value, true)" style="width:62px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:3px;font-family:'JetBrains Mono',monospace;text-transform:uppercase">
       <button class="pill" onclick="pickTop('mode','Live')" id="pill_mode_Live" style="margin-left:8px">Live</button>
       <button class="pill" onclick="pickTop('mode','Backtest')" id="pill_mode_Backtest">Backtest</button>
@@ -173,7 +171,7 @@ const OPT_LABELS = {
 function optLabel(o) { return OPT_LABELS[o] || o; }
 
 const GROUPS = [
-  { key:"htf", title:"1. HTF CONTEXT", color:"#3b82f6",
+  { key:"htf", title:"HTF CONTEXT", color:"#3b82f6",
     rules:"Weekly Bias = primary (Direction) | Daily Bias = modifier (conviction) | Target Liq. + Recently Swept → Phase (Accumulation/Post-sweep/Transition) | Barrier in direction blocks/lowers conviction (HTF FVG=no impact) | Regime restricts risk | Liq. Minor = -1 conv | Near HTF Extreme required for ANY Reversal mode",
     fields:[
       {id:"weekly_bias",label:"Weekly Bias",opts:["Bullish","Bearish","Balanced"]},
@@ -190,7 +188,7 @@ const GROUPS = [
       {id:"draw_level_above",label:"Liq. Above",opts:["HTF Swing H","PMH","PWH","MO","PDH","WO","EQH","FVG 50%","Round Number","Session H","DO","FVG edge"],optional:true,multi:true},
       {id:"draw_level_below",label:"Liq. Below",opts:["HTF Swing L","PML","PWL","MO","PDL","WO","EQL","FVG 50%","Round Number","Session L","DO","FVG edge"],optional:true,multi:true}
     ]},
-  { key:"dynamics", title:"2. MARKET DYNAMICS", color:"#8b5cf6",
+  { key:"dynamics", title:"MARKET DYNAMICS", color:"#8b5cf6",
     rules:"Phase = Movement (kinetic ≤1h: MicroView+Now+Moment) × Driver (positioning ≤2 days: Market+Funding) | High conf when both axes align | Reversal needs Conflicting+Diverging",
     fields:[
       // FUNDING (standalone, top of section — bias signal)
@@ -689,6 +687,159 @@ function renderDistancesPanel() {
     out += `</div>`;
   }
 
+  out += `</div>`;
+  return out;
+}
+
+// 2026-05-04: Geometry analysis block — moved from verbose Details panel to render under main Geometry section.
+// Shows per-target reachability vs active ATR, barrier path-aware analysis, near-extreme digestion check.
+// Renders only if any price field is filled. Gated behind verbose toggle (only visible when Details ON).
+function renderGeometryAnalysis() {
+  if (!isVerboseOn()) return "";
+  const anyPriceSet = state.price_current !== undefined || state.price_target_above !== undefined ||
+                      state.price_target_above_2 !== undefined ||
+                      state.price_target_below !== undefined || state.price_target_below_2 !== undefined ||
+                      state.price_barrier_above !== undefined ||
+                      state.price_barrier_below !== undefined || state.price_near_extreme !== undefined;
+  if (!anyPriceSet) return "";
+
+  let out = `<div style="margin-top:6px;padding:8px 10px;background:rgba(107,114,128,0.04);border:1px solid var(--border);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6">`;
+  out += `<div style="font-weight:700;color:var(--muted);margin-bottom:4px;letter-spacing:0.05em;font-size:10px">GEOMETRY ANALYSIS <span style="font-weight:400;font-style:italic">· path-aware reachability</span></div>`;
+  out += `<div style="margin-bottom:6px"><b>Geometry:</b>`;
+  if (!state.price_current) out += ` <span style="color:var(--muted);font-size:10px">(set Current Price для distance checks)</span>`;
+  out += `</div>`;
+  out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px;font-size:10px">`;
+  if (!activeATR()) {
+    if (state.atr_1h && state.atr_d && state.price_current !== undefined) {
+      const aboveTs = targetsAnalysis("above");
+      const belowTs = targetsAnalysis("below");
+      const allTs = [...aboveTs, ...belowTs];
+      if (allTs.length > 0) {
+        out += `<span style="color:var(--yellow, #ca8a04)">⏸</span> Pick Hold Intent для compute active distances. Native horizon classification:<br>`;
+        allTs.forEach(t => {
+          const arrow = t.field.includes("above") ? "↑" : "↓";
+          const nativeColor = t.native === "Both" ? "var(--green)"
+                            : t.native === "Intraday" ? "#3b82f6"
+                            : t.native === "Swing" ? "#8b5cf6"
+                            : t.native === "OutOfRange" ? "var(--red)"
+                            : "var(--muted)";
+          const ratioStr = (t.ratio_1h !== null && t.ratio_d !== null)
+            ? ` (${t.ratio_1h.toFixed(1)}× 1H | ${t.ratio_d.toFixed(2)}× D)`
+            : "";
+          out += `<span style="color:var(--muted)">  ·</span> ${t.label}${arrow} @ ${t.price}${ratioStr} | native: <span style="color:${nativeColor}">${t.native}</span><br>`;
+        });
+      } else {
+        out += `<span style="color:var(--yellow, #ca8a04)">⏸</span> Pick Hold Intent + fill targets для compute distances<br>`;
+      }
+    } else {
+      out += `<span style="color:var(--yellow, #ca8a04)">⏸</span> Pick Hold Intent + fill ATR для compute distances<br>`;
+    }
+  } else {
+    const renderTargetsForSide = (side) => {
+      const ts = targetsAnalysis(side);
+      if (ts.length === 0) return "";
+      const m = activeMultipliers();
+      const arrow = side === "above" ? "↑" : "↓";
+      let block = "";
+      ts.forEach(t => {
+        const c = priceDistanceCheck(t.field);
+        if (!c.valid) return;
+        let badge = "";
+        let badgeColor = "var(--muted)";
+        if (c.ratio > m.target) { badge = " ⛔ premature"; badgeColor = "var(--red)"; }
+        else { badge = " ✓ reachable"; badgeColor = "var(--green)"; }
+        let nativeBadge = "";
+        let nativeColor = "var(--muted)";
+        if (t.native === "Both") { nativeBadge = " | native: Both ✓"; nativeColor = "var(--green)"; }
+        else if (t.native === "Intraday") { nativeBadge = " | native: Intraday"; nativeColor = "#3b82f6"; }
+        else if (t.native === "Swing") { nativeBadge = " | native: Swing"; nativeColor = "#8b5cf6"; }
+        else if (t.native === "OutOfRange") { nativeBadge = " | native: OutOfRange ⛔"; nativeColor = "var(--red)"; }
+        let ratioDetail = "";
+        if (t.ratio_1h !== null && t.ratio_d !== null) {
+          ratioDetail = ` (${t.ratio_1h.toFixed(1)}× 1H | ${t.ratio_d.toFixed(2)}× D)`;
+        }
+        const labelPrefix = ts.length > 1 ? `${t.label}${arrow}` : `Target${arrow}`;
+        block += `<span style="color:var(--muted)">  ·</span> ${labelPrefix} @ ${t.price}: ${c.ratio.toFixed(2)}× ${c.atrLabel}${ratioDetail}<span style="color:${badgeColor}">${badge}</span><span style="color:${nativeColor}">${nativeBadge}</span><br>`;
+      });
+      return block;
+    };
+    out += renderTargetsForSide("above");
+    out += renderTargetsForSide("below");
+
+    const renderBarriersForSide = (side) => {
+      const pa = barrierPathAware(side);
+      if (!pa.present || pa.barriers.length === 0) return "";
+      const arrow = side === "above" ? "↑" : "↓";
+      let inner = "";
+      pa.barriers.forEach(b => {
+        const c = priceDistanceCheck(b.field || (side === "above" ? "barrier_above" + (b.label === "B2" ? "_2" : "") : "barrier_below" + (b.label === "B2" ? "_2" : "")));
+        if (!c.valid) return;
+        let badge = "";
+        let badgeColor = "var(--muted)";
+        if (b.outOfRange) {
+          badge = " ⊘ inactive (out of range)";
+          badgeColor = "var(--muted)";
+        } else if (pa.targets.length > 0) {
+          if (b.activeForTargets.length === 0) {
+            badge = " ✓ bypass (not in any target path)";
+            badgeColor = "var(--green)";
+          } else if (b.activeForTargets.length === pa.targets.length) {
+            badge = " ⚠ active (blocks all targets)";
+            badgeColor = "var(--yellow, #ca8a04)";
+          } else {
+            badge = ` ⚠ active for ${b.activeForTargets.join("+")} only`;
+            badgeColor = "var(--yellow, #ca8a04)";
+          }
+        } else {
+          badge = " ⚠ active";
+          badgeColor = "var(--yellow, #ca8a04)";
+        }
+        const labelPrefix = pa.barriers.length > 1 ? `${b.label}${arrow}` : `Barrier${arrow}`;
+        inner += `<span style="color:var(--muted)">  ·</span> ${labelPrefix} @ ${b.price}: ${c.ratio.toFixed(2)}× ${c.atrLabel}<span style="color:${badgeColor}">${badge}</span><br>`;
+      });
+      return inner;
+    };
+    out += renderBarriersForSide("above");
+    out += renderBarriersForSide("below");
+
+    if (state.price_near_extreme !== undefined) {
+      const c = priceDistanceCheck("near_extreme");
+      if (c.valid) {
+        const m = activeMultipliers();
+        let badge = "";
+        let badgeColor = "var(--muted)";
+        if (state.swept && c.ratio > m.digestion) { badge = " ⚠ post-sweep digestion candidate"; badgeColor = "var(--yellow, #ca8a04)"; }
+        out += `<span style="color:var(--muted)">  ·</span> Extreme @ ${state.price_near_extreme}: ${c.ratio.toFixed(2)}× ${c.atrLabel}<span style="color:${badgeColor}">${badge}</span><br>`;
+      }
+    }
+  }
+  out += `</div>`;
+  // Auto-suggest banners (gated behind areSuggestionsOn() — default OFF)
+  if (areSuggestionsOn() && !state.wait_sub_type) {
+    const hzSuggest = suggestTradeHorizon();
+    if (hzSuggest) {
+      out += `<div style="margin:6px 0;padding:6px 8px;background:rgba(139,92,246,0.08);border-left:2px solid #8b5cf6;font-size:10px">`;
+      if (hzSuggest.allOutOfRange) {
+        out += `<span style="color:#8b5cf6;font-weight:600">💡 H8.4 suggestion:</span> ${hzSuggest.reason}`;
+      } else {
+        out += `<span style="color:#8b5cf6;font-weight:600">💡 H8.4 suggestion:</span> ${hzSuggest.reason} → consider Hold Intent = <b>${hzSuggest.horizon}</b>`;
+      }
+      out += `</div>`;
+    }
+    const tp = shouldSuggestTargetPremature();
+    if (tp) {
+      out += `<div style="margin:6px 0;padding:6px 8px;background:rgba(202,138,4,0.08);border-left:2px solid var(--yellow, #ca8a04);font-size:10px">`;
+      const tpDetail = tp.targetCount > 1 ? ` (nearest of ${tp.targetCount} targets — ${tp.targetLabel})` : "";
+      out += `<span style="color:var(--yellow, #ca8a04);font-weight:600">💡 O7.17 suggestion:</span> Target ${tp.side}${tpDetail} distance ${tp.ratio}× ${tp.atrLabel} > ${tp.threshold}× threshold → consider Wait Mode = <b>target far</b>`;
+      out += `</div>`;
+    }
+    const psd = shouldSuggestPostSweepDigestion();
+    if (psd) {
+      out += `<div style="margin:6px 0;padding:6px 8px;background:rgba(202,138,4,0.08);border-left:2px solid var(--yellow, #ca8a04);font-size:10px">`;
+      out += `<span style="color:var(--yellow, #ca8a04);font-weight:600">💡 H1.25 suggestion:</span> Distance from swept extreme (${psd.sweptSide}) ${psd.ratio}× ${psd.atrLabel} > ${psd.threshold}× threshold → consider Wait Mode = <b>post-sweep</b>`;
+      out += `</div>`;
+    }
+  }
   out += `</div>`;
   return out;
 }
@@ -1952,164 +2103,9 @@ function renderVerboseHTF() {
   }
   out += `</div>`;
 
-  // H9.1 (2026-04-29): Geometry block — distance display + auto-action suggestions
-  // H8.2 (2026-04-29): per-target horizon annotation + path-aware barrier display
-  // Only render if any price field is filled (avoid clutter when geometry not used)
-  const anyPriceSet = state.price_current !== undefined || state.price_target_above !== undefined ||
-                      state.price_target_above_2 !== undefined ||
-                      state.price_target_below !== undefined || state.price_target_below_2 !== undefined ||
-                      state.price_barrier_above !== undefined ||
-                      state.price_barrier_below !== undefined || state.price_near_extreme !== undefined;
-  if (anyPriceSet) {
-    out += `<div style="margin-bottom:6px"><b>Geometry:</b>`;
-    if (!state.price_current) out += ` <span style="color:var(--muted);font-size:10px">(set Current Price для distance checks)</span>`;
-    out += `</div>`;
-    out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px;font-size:10px">`;
-    if (!activeATR()) {
-      // H8.4 (2026-04-29): If both ATRs available — show native horizon analysis even before horizon picked.
-      // Helps user see which horizon makes sense from target geometry.
-      if (state.atr_1h && state.atr_d && state.price_current !== undefined) {
-        const aboveTs = targetsAnalysis("above");
-        const belowTs = targetsAnalysis("below");
-        const allTs = [...aboveTs, ...belowTs];
-        if (allTs.length > 0) {
-          out += `<span style="color:var(--yellow, #ca8a04)">⏸</span> Pick horizon для compute active distances. Native horizon classification (H8.4):<br>`;
-          allTs.forEach(t => {
-            const arrow = t.field.includes("above") ? "↑" : "↓";
-            const nativeColor = t.native === "Both" ? "var(--green)"
-                              : t.native === "Intraday" ? "#3b82f6"
-                              : t.native === "Swing" ? "#8b5cf6"
-                              : t.native === "OutOfRange" ? "var(--red)"
-                              : "var(--muted)";
-            const ratioStr = (t.ratio_1h !== null && t.ratio_d !== null)
-              ? ` (${t.ratio_1h.toFixed(1)}× 1H | ${t.ratio_d.toFixed(2)}× D)`
-              : "";
-            out += `<span style="color:var(--muted)">  ·</span> ${t.label}${arrow} @ ${t.price}${ratioStr} | native: <span style="color:${nativeColor}">${t.native}</span><br>`;
-          });
-        } else {
-          out += `<span style="color:var(--yellow, #ca8a04)">⏸</span> Pick horizon + fill targets для compute distances<br>`;
-        }
-      } else {
-        out += `<span style="color:var(--yellow, #ca8a04)">⏸</span> Pick horizon + fill ATR для compute distances<br>`;
-      }
-    } else {
-      // H8.2: render targets with horizon annotation
-      const renderTargetsForSide = (side) => {
-        const ts = targetsAnalysis(side);
-        if (ts.length === 0) return "";
-        const m = activeMultipliers();
-        const arrow = side === "above" ? "↑" : "↓";
-        let block = "";
-        ts.forEach(t => {
-          // Distance in active ATR
-          const c = priceDistanceCheck(t.field);
-          if (!c.valid) return;
-          // Premature badge
-          let badge = "";
-          let badgeColor = "var(--muted)";
-          if (c.ratio > m.target) { badge = " ⛔ premature"; badgeColor = "var(--red)"; }
-          else { badge = " ✓ reachable"; badgeColor = "var(--green)"; }
-          // Native horizon badge (H8.2)
-          let nativeBadge = "";
-          let nativeColor = "var(--muted)";
-          if (t.native === "Both") { nativeBadge = " | native: Both ✓"; nativeColor = "var(--green)"; }
-          else if (t.native === "Intraday") { nativeBadge = " | native: Intraday"; nativeColor = "#3b82f6"; }
-          else if (t.native === "Swing") { nativeBadge = " | native: Swing"; nativeColor = "#8b5cf6"; }
-          else if (t.native === "OutOfRange") { nativeBadge = " | native: OutOfRange ⛔"; nativeColor = "var(--red)"; }
-          // Multi-horizon ratio if both ATRs available (H8.2)
-          let ratioDetail = "";
-          if (t.ratio_1h !== null && t.ratio_d !== null) {
-            ratioDetail = ` (${t.ratio_1h.toFixed(1)}× 1H | ${t.ratio_d.toFixed(2)}× D)`;
-          }
-          const labelPrefix = ts.length > 1 ? `${t.label}${arrow}` : `Target${arrow}`;
-          block += `<span style="color:var(--muted)">  ·</span> ${labelPrefix} @ ${t.price}: ${c.ratio.toFixed(2)}× ${c.atrLabel}${ratioDetail}<span style="color:${badgeColor}">${badge}</span><span style="color:${nativeColor}">${nativeBadge}</span><br>`;
-        });
-        return block;
-      };
-      out += renderTargetsForSide("above");
-      out += renderTargetsForSide("below");
-
-      // H8.2 + H8.3: barriers — path-aware display per barrier
-      const renderBarriersForSide = (side) => {
-        const pa = barrierPathAware(side);
-        if (!pa.present || pa.barriers.length === 0) return "";
-        const arrow = side === "above" ? "↑" : "↓";
-        const m = activeMultipliers();
-        let out = "";
-        pa.barriers.forEach(b => {
-          const c = priceDistanceCheck(b.field || (side === "above" ? "barrier_above" + (b.label === "B2" ? "_2" : "") : "barrier_below" + (b.label === "B2" ? "_2" : "")));
-          if (!c.valid) return;
-          let badge = "";
-          let badgeColor = "var(--muted)";
-          if (b.outOfRange) {
-            badge = " ⊘ inactive (out of range)";
-            badgeColor = "var(--muted)";
-          } else if (pa.targets.length > 0) {
-            if (b.activeForTargets.length === 0) {
-              badge = " ✓ bypass (not in any target path)";
-              badgeColor = "var(--green)";
-            } else if (b.activeForTargets.length === pa.targets.length) {
-              badge = " ⚠ active (blocks all targets)";
-              badgeColor = "var(--yellow, #ca8a04)";
-            } else {
-              badge = ` ⚠ active for ${b.activeForTargets.join("+")} only`;
-              badgeColor = "var(--yellow, #ca8a04)";
-            }
-          } else {
-            badge = " ⚠ active";
-            badgeColor = "var(--yellow, #ca8a04)";
-          }
-          // Show B1/B2 prefix only when 2 barriers present
-          const labelPrefix = pa.barriers.length > 1 ? `${b.label}${arrow}` : `Barrier${arrow}`;
-          out += `<span style="color:var(--muted)">  ·</span> ${labelPrefix} @ ${b.price}: ${c.ratio.toFixed(2)}× ${c.atrLabel}<span style="color:${badgeColor}">${badge}</span><br>`;
-        });
-        return out;
-      };
-      out += renderBarriersForSide("above");
-      out += renderBarriersForSide("below");
-
-      // Near extreme (unchanged from H9.1)
-      if (state.price_near_extreme !== undefined) {
-        const c = priceDistanceCheck("near_extreme");
-        if (c.valid) {
-          const m = activeMultipliers();
-          let badge = "";
-          let badgeColor = "var(--muted)";
-          if (state.swept && c.ratio > m.digestion) { badge = " ⚠ post-sweep digestion candidate"; badgeColor = "var(--yellow, #ca8a04)"; }
-          out += `<span style="color:var(--muted)">  ·</span> Extreme @ ${state.price_near_extreme}: ${c.ratio.toFixed(2)}× ${c.atrLabel}<span style="color:${badgeColor}">${badge}</span><br>`;
-        }
-      }
-    }
-    out += `</div>`;
-    // Auto-suggest banners (O7.17 + H1.25 automation via H9.1; H8.4 horizon suggest 2026-04-29)
-    // 2026-05-04: gated behind areSuggestionsOn() — opt-in only. Default OFF (validation phase).
-    if (areSuggestionsOn() && !state.wait_sub_type) {
-      // H8.4: Suggest Trade Horizon based on target geometry (only fires if horizon NOT yet picked)
-      const hzSuggest = suggestTradeHorizon();
-      if (hzSuggest) {
-        out += `<div style="margin:6px 0;padding:6px 8px;background:rgba(139,92,246,0.08);border-left:2px solid #8b5cf6;font-size:10px">`;
-        if (hzSuggest.allOutOfRange) {
-          out += `<span style="color:#8b5cf6;font-weight:600">💡 H8.4 suggestion:</span> ${hzSuggest.reason}`;
-        } else {
-          out += `<span style="color:#8b5cf6;font-weight:600">💡 H8.4 suggestion:</span> ${hzSuggest.reason} → consider Trade Horizon = <b>${hzSuggest.horizon}</b>`;
-        }
-        out += `</div>`;
-      }
-      const tp = shouldSuggestTargetPremature();
-      if (tp) {
-        out += `<div style="margin:6px 0;padding:6px 8px;background:rgba(202,138,4,0.08);border-left:2px solid var(--yellow, #ca8a04);font-size:10px">`;
-        const tpDetail = tp.targetCount > 1 ? ` (nearest of ${tp.targetCount} targets — ${tp.targetLabel})` : "";
-        out += `<span style="color:var(--yellow, #ca8a04);font-weight:600">💡 O7.17 suggestion:</span> Target ${tp.side}${tpDetail} distance ${tp.ratio}× ${tp.atrLabel} > ${tp.threshold}× threshold → consider Wait Mode = <b>target_premature</b>`;
-        out += `</div>`;
-      }
-      const psd = shouldSuggestPostSweepDigestion();
-      if (psd) {
-        out += `<div style="margin:6px 0;padding:6px 8px;background:rgba(202,138,4,0.08);border-left:2px solid var(--yellow, #ca8a04);font-size:10px">`;
-        out += `<span style="color:var(--yellow, #ca8a04);font-weight:600">💡 H1.25 suggestion:</span> Distance from swept extreme (${psd.sweptSide}) ${psd.ratio}× ${psd.atrLabel} > ${psd.threshold}× threshold → consider Wait Mode = <b>post_sweep_digestion</b>`;
-        out += `</div>`;
-      }
-    }
-  }
+  // H9.1 (2026-04-29): Geometry block — moved to render under main Geometry section (per user 2026-05-04).
+  // See renderGeometryAnalysis() — called from trade group rendering after DISTANCES panel.
+  // Verbose details panel no longer contains Geometry analysis to avoid duplication.
 
   out += `</div>`;
   // ===== COLUMN 2 =====
@@ -2349,6 +2345,8 @@ function render() {
     // Trader sees distance + ATR ratios and decides manually. Builds empirical intuition.
     if (g.key === "trade") {
       html += renderDistancesPanel();
+      // 2026-05-04: Geometry analysis (moved from Verbose Details panel per user) — only when verbose toggle ON.
+      html += renderGeometryAnalysis();
     }
     if (g.key === "trade") {
       html += `</div>`;
@@ -2441,51 +2439,95 @@ function render() {
       };
       const fmap = {};
       for (const f of g.fields) fmap[f.id] = f;
-      // Row 1: Weekly Bias | Daily Bias | Target Liq. (3 columns)
-      html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-bottom:6px">`;
-      html += renderField(fmap.weekly_bias, 0);
-      html += renderField(fmap.daily_bias, 0);
-      html += renderField(fmap.liq_draw, 0);
+      // 2026-05-04: HTF logical chunks wrapped in MD-style cards (per user request — visual consistency with Market Dynamics).
+      // Same border/radius/header pattern as MD renderBlock, but blue tint (rgba(59,130,246,0.02)) since HTF group color is --blue.
+      const renderHTFCard = (header, subtitle, innerHtml) => {
+        let card = `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">`;
+        card += `<div style="font-size:10px;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">${header}<span style="color:var(--muted);font-weight:400;margin-left:4px;font-style:italic;font-size:9px;letter-spacing:0.02em">· ${subtitle}</span></div>`;
+        card += innerHtml;
+        card += `</div>`;
+        return card;
+      };
+      // Row 1: BIAS card | LIQUIDITY INTENT card (2 cards side-by-side)
+      html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">`;
+      let biasInner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">`;
+      biasInner += renderField(fmap.weekly_bias, 0);
+      biasInner += renderField(fmap.daily_bias, 0);
+      biasInner += `</div>`;
+      html += `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${biasInner}</div>`;
+      let liqIntentInner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">`;
+      liqIntentInner += renderField(fmap.liq_draw, 0);
+      liqIntentInner += renderField(fmap.swept, 0);
+      liqIntentInner += `</div>`;
+      html += `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${liqIntentInner}</div>`;
       html += `</div>`;
-      // Row 2: Regime (spans cols 1-2) | Recently Swept (col 3)
-      html += `<div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;margin-bottom:6px">`;
-      html += renderField(fmap.regime, 0);
-      html += renderField(fmap.swept, 0);
+      // Row 2 (split 2026-05-04 per user): Regime + Session/Range/Direction. Both as card frames without header (per user).
+      html += `<div style="display:grid;grid-template-columns:1fr 1.7fr;gap:8px;margin-bottom:6px">`;
+      // Regime — card frame without header
+      let regimeInner = renderField(fmap.regime, 4);
+      html += `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${regimeInner}</div>`;
+      // Session + Range Position + Direction — card frame without header
+      let microInner = `<div style="display:grid;grid-template-columns:1fr 1.2fr 0.7fr;gap:16px">`;
+      microInner += renderField(fmap.killzone, 3);
+      microInner += renderField(fmap.range_type, 3);
+      microInner += renderField(fmap.range_dir, 2);
+      microInner += `</div>`;
+      html += `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${microInner}</div>`;
       html += `</div>`;
-      // Row 2.5 (O7.30 / O7.28 — 2026-05-02 / renamed + split 2026-05-03): Session | Range Position | Direction
-      // Session auto-defaults from UTC hour (empty 21-24 UTC). Range split into Type (Breakout/Sweep/Mid-Range) + Direction (Above/Below) to save horizontal space.
-      // Direction disabled when Type=Mid-Range. state.range_position derived from both parts in pick().
-      html += `<div style="display:grid;grid-template-columns:1fr 1fr 0.7fr;gap:20px;margin-bottom:6px">`;
-      html += renderField(fmap.killzone, 3);
-      html += renderField(fmap.range_type, 3);
-      html += renderField(fmap.range_dir, 2);
-      html += `</div>`;
-      // Row 3: Near HTF Extreme (full width, under phase cluster)
-      // H9.1 (UX 2026-04-29): Extreme price input inline with extreme buttons row when selected.
-      const extremeSelectedRow3 = Array.isArray(state.extreme) ? state.extreme.length > 0 : !!state.extreme;
-      html += `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">`;
-      html += `<div style="flex:1;min-width:0">` + renderField(fmap.extreme, 0) + `</div>`;
-      if (extremeSelectedRow3) {
-        const extremePriceVal = (state.price_near_extreme !== undefined && state.price_near_extreme !== null) ? state.price_near_extreme : "";
-        const extremePriceSet = state.price_near_extreme !== undefined && state.price_near_extreme !== null && state.price_near_extreme > 0;
-        const extremePriceTooltipShort = "<strong>Near Extreme Price (H9.1)</strong>\nPrice level swept extreme (PWH, PMH, etc.) — для post-sweep digestion check.\n\n<strong>Distance check:</strong>\nWhen Recently Swept set + distance from extreme > horizon's digestion threshold (Intraday: 2× ATR(1H); Swing: 1× ATR(D)) → auto-suggest Wait Mode = post_sweep_digestion.\n\nLeave empty if extreme distance не actionable.";
-        html += `<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">`;
-        html += `<span style="font-size:10px;color:var(--muted)"><span class="tip">Extreme Price ⓘ<span class="tip-box">${extremePriceTooltipShort}</span></span></span>`;
-        html += `<input type="text" inputmode="decimal" id="inp_price_near_extreme" class="mini-input" style="width:80px" placeholder="e.g. 79428" value="${extremePriceVal}" onchange="setPrice('near_extreme', this.value)" onblur="setPrice('near_extreme', this.value)">`;
-        html += `<span style="font-size:10px;color:${extremePriceSet ? 'var(--green)' : 'var(--muted)'}">${extremePriceSet ? '✓' : '·'}</span>`;
-        html += `</div>`;
+      // Row 3: REVERSAL CONTEXT card (HTF Extreme + price input inline between pills)
+      // 2026-05-04: Price input inserted INTO the pills row, right after the last selected pill (per user — visible in flow).
+      const extremeSelected = Array.isArray(state.extreme) ? state.extreme : (state.extreme ? [state.extreme] : []);
+      const extremeAnySelected = extremeSelected.length > 0;
+      const extremeF = fmap.extreme;
+      const extremeTooltipText = "<strong>Near HTF Extreme — reversal-qualifier</strong>\nВ КАКОЙ HTF reversal-зоне цена СЕЙЧАС.\n\n<strong>Major:</strong> HTF Swing / PMH / PML / PWH / PWL\n<strong>Medium:</strong> PDH / PDL / EQH / EQL / MO\n\nMulti-select. Click pill повторно — снять.";
+      // Find last-selected option in render order (= last index in f.opts that is in selected set)
+      let lastSelectedIdx = -1;
+      for (let i = 0; i < extremeF.opts.length; i++) {
+        if (extremeSelected.includes(extremeF.opts[i])) lastSelectedIdx = i;
       }
-      html += `</div>`;
-      // Row 4: Liq Above / Liq Below — 3-col pill grids side-by-side
-      html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:6px">`;
-      html += renderField(fmap.draw_level_above, 3);
-      html += renderField(fmap.draw_level_below, 3);
-      html += `</div>`;
-      // Row 5: Barrier Above / Below — 2-col pill grids side-by-side
-      html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:6px">`;
-      html += renderField(fmap.barrier_above, 2);
-      html += renderField(fmap.barrier_below, 2);
-      html += `</div>`;
+      // Compute strength label for inline computed display
+      let strengthDisplay = "";
+      if (extremeAnySelected) {
+        const strengths = extremeSelected.map(t => extremeStrength(t)).filter(Boolean);
+        if (strengths.length) {
+          const best = strengths.includes("Major") ? "Major" : "Medium";
+          const sColor = best === "Major" ? "var(--green)" : "var(--yellow, #ca8a04)";
+          strengthDisplay = ` <span style="font-size:10px;color:var(--muted);margin-left:8px;font-weight:400">${extremeSelected.join(", ")} → <span style="color:${sColor};font-weight:700">${best}</span></span>`;
+        }
+      }
+      let extInner = `<div class="row" style="margin-bottom:2px"><span class="lbl"><span class="tip">Near HTF Extreme ⓘ<span class="tip-box">${extremeTooltipText}</span></span>${strengthDisplay}</span></div>`;
+      extInner += `<div class="pills" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px">`;
+      for (let i = 0; i < extremeF.opts.length; i++) {
+        const o = extremeF.opts[i];
+        const sel = extremeSelected.includes(o);
+        const cls = sel ? 'pill sel' : 'pill';
+        extInner += `<button class="${cls}" onclick="pickMulti('extreme','${o.replace(/'/g,"\\'")}')">${o}</button>`;
+        // Insert price input immediately after the last selected pill
+        if (i === lastSelectedIdx) {
+          const extremePriceVal = (state.price_near_extreme !== undefined && state.price_near_extreme !== null) ? state.price_near_extreme : "";
+          const extremePriceSet = state.price_near_extreme !== undefined && state.price_near_extreme !== null && state.price_near_extreme > 0;
+          const extremePriceTooltipShort = "<strong>Near Extreme Price (H9.1)</strong>\nPrice level swept extreme (PWH, PMH, etc.) — для post-sweep digestion check.\n\n<strong>Distance check:</strong>\nWhen Recently Swept set + distance from extreme > horizon's digestion threshold (Intraday: 2× ATR(1H); Swing: 1× ATR(D)) → auto-suggest Wait Mode = post_sweep_digestion.\n\nLeave empty if extreme distance не actionable.";
+          extInner += `<span style="display:inline-flex;align-items:center;gap:6px;margin:0 4px;padding:0 6px;border-left:2px solid var(--green);border-right:2px solid var(--green);background:rgba(34,197,94,0.05)">`;
+          extInner += `<span style="font-size:10px;color:var(--muted)"><span class="tip">Price ⓘ<span class="tip-box">${extremePriceTooltipShort}</span></span></span>`;
+          extInner += `<input type="text" inputmode="decimal" id="inp_price_near_extreme" class="mini-input" style="width:90px" placeholder="e.g. 79428" value="${extremePriceVal}" onchange="setPrice('near_extreme', this.value)" onblur="setPrice('near_extreme', this.value)">`;
+          extInner += `<span style="font-size:10px;color:${extremePriceSet ? 'var(--green)' : 'var(--muted)'};font-weight:600">${extremePriceSet ? '✓' : '·'}</span>`;
+          extInner += `</span>`;
+        }
+      }
+      extInner += `</div>`;
+      html += `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${extInner}</div>`;
+      // Row 4: TARGETS card (Liq Above + Liq Below)
+      let targetsInner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">`;
+      targetsInner += renderField(fmap.draw_level_above, 3);
+      targetsInner += renderField(fmap.draw_level_below, 3);
+      targetsInner += `</div>`;
+      html += `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${targetsInner}</div>`;
+      // Row 5: BARRIERS card (Barrier Above + Barrier Below)
+      let barriersInner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">`;
+      barriersInner += renderField(fmap.barrier_above, 2);
+      barriersInner += renderField(fmap.barrier_below, 2);
+      barriersInner += `</div>`;
+      html += `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${barriersInner}</div>`;
     } else if (g.key === "dynamics") {
       // O7.32 (2026-05-03): Compact 3-column grid for Market Dynamics horizon blocks.
       // Inline label+pills (no separate label row). Block cards in 3-col layout.
@@ -3058,7 +3100,7 @@ function renderTopPills() {
 
 // Custom asset setter (UX 2026-04-29) — replaces PEPE pill с free-text asset entry.
 // Asset is stored uppercased in state.asset. ATR + price loaders work для any asset symbol.
-// Notion select field "Asset" auto-creates new options when unknown value is sent.
+// Notion text field "Asset" (converted from Select to Text on 2026-05-04 — accepts any value, no option list).
 // D5 validation (2026-04-29): isBlur flag controls visual feedback — silent during typing,
 // red outline on blur if invalid. Allows partial typing ("D" → "DO" → "DOG" → "DOGE")
 // without spurious error display.

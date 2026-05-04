@@ -212,10 +212,10 @@ const GROUPS = [
     extra:"trade_nums"}
 ];
 
-const DISP_CRIT = [{id:"d_body",label:"Body≥60%"},{id:"d_wick",label:"Wick≤35%"},{id:"d_range",label:"Range≥1.2×ATR"},{id:"d_vol",label:"Vol≥1.3×Avg"}];
+const DISP_CRIT = [{id:"d_body",label:"Body≥60%"},{id:"d_wick",label:"Wick≤35%"},{id:"d_range",label:"Range≥1.2×ATR"},{id:"d_vol",label:"Vol≥1.3×Avg"},{id:"d_break",label:"Break"}];
 
 let state = {};
-let dispState = {d_body:false, d_wick:false, d_range:false, d_vol:false};
+let dispState = {d_body:false, d_wick:false, d_range:false, d_vol:false, d_break:false};
 let rulesOpen = {};
 let postOpen = false;
 
@@ -2343,6 +2343,26 @@ function render() {
       }
       html += `</div></div>`;
       html += `</div>`;
+      // 2026-05-04: Actuals + Confluence row (Variant B logging — actual measured values from Pine table)
+      const confluenceCurrent = state.confluence || "";
+      html += `<div class="row" style="gap:14px;align-items:center;flex-wrap:wrap;margin-top:4px">`;
+      // Actuals — 4 number inputs read from Pine table (Body%, Wick%, ATR×, Vol×)
+      html += `<div style="display:flex;align-items:center;gap:6px">`;
+      html += `<span class="lbl"><span class="tip">Actuals ⓘ<span class="tip-box"><strong>Disp Actual Values</strong>\nRead from Pine table on chart (bottom-right):\n• <strong>B</strong> — Body % of range (e.g. 73)\n• <strong>W</strong> — Wick % of range (e.g. 18)\n• <strong>A×</strong> — Range/ATR ratio (e.g. 1.6)\n• <strong>V×</strong> — Volume/Avg ratio (e.g. 1.9)\n\nLogged to Notion for empirical threshold calibration after 50+ trades.</span></span></span>`;
+      html += `<span style="font-size:11px;color:var(--muted)">B</span><input class="mini-input w48" id="inp_disp_body" placeholder="73" oninput="saveInput(this)">`;
+      html += `<span style="font-size:11px;color:var(--muted)">W</span><input class="mini-input w48" id="inp_disp_wick" placeholder="18" oninput="saveInput(this)">`;
+      html += `<span style="font-size:11px;color:var(--muted)">A×</span><input class="mini-input w48" id="inp_disp_atr" placeholder="1.6" oninput="saveInput(this)">`;
+      html += `<span style="font-size:11px;color:var(--muted)">V×</span><input class="mini-input w48" id="inp_disp_vol" placeholder="1.9" oninput="saveInput(this)">`;
+      html += `</div>`;
+      // Confluence — multi-TF alignment from Pine table 1H/4H rows
+      html += `<div style="display:flex;align-items:center;gap:4px">`;
+      html += `<span class="lbl"><span class="tip">Confluence ⓘ<span class="tip-box"><strong>Multi-TF Confluence</strong>\nDoes 1H/4H displacement align with your trade direction?\n\nRead from Pine table (rows 1H + 4H):\n• <strong>None</strong> — neither aligns (or 1H/4H = "—")\n• <strong>1H aligned</strong> — 1H bar shows displacement same direction as your trade\n• <strong>1H+4H aligned</strong> — both 1H and 4H aligned (max conviction)\n\nNote: 4H alone (without 1H) → still "None". 1H is primary HTF for 15M trades.</span></span></span>`;
+      for (const opt of ["None", "1H aligned", "1H+4H aligned"]) {
+        const cls = confluenceCurrent === opt ? "pill sel" : "pill";
+        html += `<button class="${cls}" onclick="pick('confluence','${opt}')">${opt}</button>`;
+      }
+      html += `</div>`;
+      html += `</div>`;
     }
     // 2026-05-04: Geometry rendering (ATR + price fields + DISTANCES + Analysis) extracted to renderTradeGeometry().
     // Called LATER (right before trade_nums) so Trigger/Confirm/Displacement render FIRST in MARKET DEAL section.
@@ -3299,8 +3319,8 @@ function restoreTimer() {
 }
 
 function resetAll() {
-  state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false};
-  ['state','disp','risk','entry','stop','tp1','tp2','rr','notes','screenshot','account'].forEach(k => localStorage.removeItem('tc_'+k));
+  state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false,d_break:false};
+  ['state','disp','risk','entry','stop','tp1','tp2','rr','notes','screenshot','account','disp_body','disp_wick','disp_atr','disp_vol'].forEach(k => localStorage.removeItem('tc_'+k));
   localStorage.removeItem('tc_state');
   // B8 fix (2026-05-01): clear sessionStorage H9.1 price fields too.
   // Without this, F5 после RESET reloaded stale prices от previous setup via loadAllPrices() on init.
@@ -3362,6 +3382,8 @@ const FIELD_MAP = {
   disp:["Displacement",{"Pass✅":"Pass","Fail⛔":"Fail"}],
   trigger:["Trigger",{BOS:"BOS","Liq.Sweep":"Liquidity Sweep"}],
   confirm:["Confirmation",{Holds:"Continuation","Retest OK":"Acceptance","Not yet":"None"}],
+  // 2026-05-04: Multi-TF Confluence — read from Pine table 1H/4H rows
+  confluence:["Confluence",{None:"None","1H aligned":"1H aligned","1H+4H aligned":"1H+4H aligned"}],
   range_position:["Range Position",{"Breakout Above":"Breakout Above","Breakout Below":"Breakout Below","Sweep Above":"Sweep Above","Sweep Below":"Sweep Below","Mid-Range":"Mid-Range"}],
   killzone:["Session",{Asia:"Asia",London:"London",NY:"NY"}],
   pricedir:["",null],
@@ -3594,11 +3616,22 @@ async function saveToNotion() {
   if (state.price_near_extreme    !== undefined) props["Near Extreme Price"]    = state.price_near_extreme;
 
   // Numbers
-  const numMap = {account:"Account $", risk:"Risk %", entry:"Entry Price", stop:"Stop Price", tp1:"TP1", tp2:"TP2"};
+  // 2026-05-04: Dropped dead entries entry/stop/tp1/tp2 (inputs removed in Geometry refactor — values now flow via state.price_*).
+  // Added 4 displacement actuals (Variant B logging — read from Pine table for empirical threshold calibration).
+  const numMap = {
+    account: "Account $",
+    risk: "Risk %",
+    disp_body: "Disp Body %",
+    disp_wick: "Disp Wick %",
+    disp_atr:  "Disp ATR ×",
+    disp_vol:  "Disp Vol ×"
+  };
   for (const [k, prop] of Object.entries(numMap)) {
     const v = localStorage.getItem("tc_"+k);
     if (v && !isNaN(parseFloat(v))) props[prop] = parseFloat(v);
   }
+  // 2026-05-04: Stop Price was not saved before refactor (numMap.stop entry was reading dead inp_stop). Fix.
+  if (state.price_stop !== undefined) props["Stop Price"] = state.price_stop;
   // RR as text
   const rr = localStorage.getItem("tc_rr");
   if (rr) props["RR Target"] = rr;
@@ -3657,7 +3690,7 @@ try {
   const s = localStorage.getItem('tc_state');
   if (s) state = JSON.parse(s);
   const d = localStorage.getItem('tc_disp');
-  if (d) dispState = JSON.parse(d);
+  if (d) dispState = {d_body:false, d_wick:false, d_range:false, d_vol:false, d_break:false, ...JSON.parse(d)};
 } catch(e) {}
 
 // ATR(1H) per-asset load — if asset is selected, restore ATR for that asset

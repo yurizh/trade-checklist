@@ -197,7 +197,7 @@ const GROUPS = [
       {id:"f_level",label:"|Rate|",opts:["Extreme >0.1%"],optional:true},
       // MARKET — up to 2 days horizon (Price + OI 8-48h)
       {id:"f_price",label:"Mkt Price 8-48h",opts:["Rising","Falling","Flat"]},
-      {id:"f_oi",label:"Mkt OI 8-48h",opts:["Rising","Flat","Falling"]},
+      {id:"f_oi",label:"Mkt OI 8-48h",opts:["Rising","Falling","Flat"]},
       // MICRO VIEW — Pre-Now (10-15h window, optional path predecessor)
       {id:"pricedir_pre",label:"Micro Price 10-15h",opts:["Up","Down","Flat"],optional:true},
       {id:"oidir_pre",label:"Micro OI 10-15h",opts:["Rising","Falling","Flat"],optional:true},
@@ -2618,14 +2618,15 @@ function render() {
       };
 
       // 3-col grid, 2 rows (5 blocks total — last cell empty filler)
+      // 2026-05-04: MARKET → DYNAMICS, NOW → PRE NOW, MOMENT subtitle → "up to last hour" per user
       html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px">`;
       html += renderBlock("FUNDING",    "up to 2 days view", [{id:"f_trend",label:""}, {id:"f_level",label:"|Rate|:"}]);
-      html += renderBlock("MARKET",     "up to 2 days view", [{id:"f_price",label:"Price:"},   {id:"f_oi",label:"OI:"}]);
-      html += renderBlock("MICRO VIEW", "Pre-Now",          [{id:"pricedir_pre",label:"Price:"}, {id:"oidir_pre",label:"OI:"}]);
+      html += renderBlock("DYNAMICS",   "up to 2 days view", [{id:"f_price",label:"Price:"},   {id:"f_oi",label:"OI:"}]);
+      html += renderBlock("MICRO VIEW", "up to 15 hours",    [{id:"pricedir_pre",label:"Price:"}, {id:"oidir_pre",label:"OI:"}]);
       html += `</div>`;
       html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px">`;
-      html += renderBlock("NOW",        "last few hours",   [{id:"pricedir",label:"Price:"},  {id:"oidir",label:"OI:"}]);
-      html += renderBlock("MOMENT",     "last 15m",         [{id:"oi15_price",label:"Price:"},{id:"oi15_oi",label:"OI:"}]);
+      html += renderBlock("PRE MOMENT", "last few hours",    [{id:"pricedir",label:"Price:"},  {id:"oidir",label:"OI:"}]);
+      html += renderBlock("MOMENT",     "up to last hour",   [{id:"oi15_price",label:"Price:"},{id:"oi15_oi",label:"OI:"}]);
       html += `<div></div>`;
       html += `</div>`;
     } else {

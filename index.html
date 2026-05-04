@@ -3050,6 +3050,13 @@ function render() {
     }
     html += `</div>`;
   }
+  // 2026-05-04: Capture active element BEFORE innerHTML wipes DOM, so we can restore focus + caret
+  // after re-render. Lets inputs trigger live recompute (Position Sizing, etc.) without losing typing focus.
+  const focusedEl = document.activeElement;
+  const focusedId = (focusedEl && focusedEl.id) ? focusedEl.id : null;
+  const focusedSelStart = focusedId && focusedEl.selectionStart != null ? focusedEl.selectionStart : null;
+  const focusedSelEnd = focusedId && focusedEl.selectionEnd != null ? focusedEl.selectionEnd : null;
+
   el.innerHTML = html;
   
   // restore input values
@@ -3064,6 +3071,17 @@ function render() {
     const saved = localStorage.getItem("tc_notes");
     if (saved) notesEl.value = saved;
     autoGrowNotes(notesEl);
+  }
+
+  // 2026-05-04: Restore focus + caret on the input that was being edited (if it still exists).
+  if (focusedId) {
+    const restored = document.getElementById(focusedId);
+    if (restored && typeof restored.focus === "function") {
+      restored.focus();
+      if (focusedSelStart != null && typeof restored.setSelectionRange === "function") {
+        try { restored.setSelectionRange(focusedSelStart, focusedSelEnd != null ? focusedSelEnd : focusedSelStart); } catch (e) { /* setSelectionRange not supported on this input type — ignore */ }
+      }
+    }
   }
   
   // verdict
@@ -3343,6 +3361,9 @@ function togglePost() {
 function saveInput(el) {
   const k = el.id.replace('inp_','');
   localStorage.setItem('tc_'+k, el.value);
+  // 2026-05-04: Trigger re-render so dependent computations (Position Sizing in Deal Details,
+  // DISTANCES table when ATR changes, etc.) refresh live. Focus preservation handled in render().
+  render();
 }
 
 function renderRR() {

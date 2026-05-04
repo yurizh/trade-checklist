@@ -120,12 +120,6 @@
   <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-weight:700;font-size:11px;color:var(--muted)">DISPLAY SETTINGS</div>
   <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
     <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:12px;">
-      <input type="checkbox" id="cfg_verbose" onchange="saveCfg();render()">
-      <span>Verbose verdict details (O7.11 — shows why & what cancelled)</span>
-    </label>
-  </div>
-  <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
-    <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:12px;">
       <input type="checkbox" id="cfg_suggestions" onchange="saveCfg();render()">
       <span>Show suggestions (H8.4 horizon + Wait Mode hints) — opt-in for empirical validation phase</span>
     </label>
@@ -171,7 +165,7 @@ const OPT_LABELS = {
 function optLabel(o) { return OPT_LABELS[o] || o; }
 
 const GROUPS = [
-  { key:"htf", title:"HTF CONTEXT", color:"#3b82f6",
+  { key:"htf", title:"MARKET CONTEXT", color:"#3b82f6",
     rules:"Weekly Bias = primary (Direction) | Daily Bias = modifier (conviction) | Target Liq. + Recently Swept → Phase (Accumulation/Post-sweep/Transition) | Barrier in direction blocks/lowers conviction (HTF FVG=no impact) | Regime restricts risk | Liq. Minor = -1 conv | Near HTF Extreme required for ANY Reversal mode",
     fields:[
       {id:"weekly_bias",label:"Weekly Bias",opts:["Bullish","Bearish","Balanced"]},
@@ -207,22 +201,12 @@ const GROUPS = [
       {id:"oi15_price",label:"Mom Price 30-60m",opts:["Rising","Falling","Flat"]},
       {id:"oi15_oi",label:"Mom OI 30-60m",opts:["Growth","Flat","Spike"]}
     ]},
-  { key:"entry_trigger", title:"3. TRIGGER", color:"#059669",
-    rules:"BOS→hold above BOS/FVG/origin | Liq.Sweep→rejection+acceptance after sweep | Holds=immediate confirm | Retest OK=came back & held",
+  { key:"trade", title:"MARKET DEAL", color:"#ef4444",
+    rules:"Trigger (BOS/Sweep) → Displacement quality → Geometry → Commitments → Sizing → Verdict. Hold Intent commits hold timeframe. Risk % suggested by Conviction (High 2% / Standard 1% / Low 0.5%).",
     fields:[
       {id:"trigger",label:"Trigger",opts:["BOS","Liq.Sweep"]},
-      {id:"confirm",label:"Confirm",opts:["Holds","Retest OK","Not yet"]}
-    ]},
-  { key:"entry_logic", title:"4. LOGIC", color:"#047857",
-    rules:"Disp 15M ALL4 | >0.5 ATR from MO/WO/DO | <1.2 ATR from disp origin | Immediate if disp+OI growth, else wait 1-3 candles",
-    fields:[
+      {id:"confirm",label:"Confirm",opts:["Holds","Retest OK","Not yet"]},
       {id:"disp",label:"Displacement",opts:[]},
-      {id:"opens_dist",label:"MO/WO/DO >0.5ATR",opts:["Yes","Too Close⛔"]},
-      {id:"origin_dist",label:"Price <1.2 ATR",opts:["Yes","Too Far⛔"]}
-    ]},
-  { key:"trade", title:"5. ENTRY RULES", color:"#ef4444",
-    rules:"High: 2%, RR 1:2-1:2.5, immediate | Standard: 1%, RR 1:2, prefer retest | Low: 0.5%, RR 1:2 | Max 1 concurrent BTC/ETH/SOL | Total<3%",
-    fields:[
       {id:"corrcheck",label:"BTC/ETH/SOL",opts:["No open trades","Conflict⛔"]}
     ],
     extra:"trade_nums"}
@@ -597,6 +581,100 @@ function horizonClassColor(klass) {
   if (klass === "OutOfRange") return "var(--red)";
   return "var(--muted)";
 }
+// 2026-05-04: Geometry rendering extracted from inline render() loop into helper function.
+// Called by render() loop at the right point inside trade group (after Trigger/Confirm/Disp fields).
+// Builds: ATR row + Geometry price fields + DISTANCES panel + Geometry Analysis.
+function renderTradeGeometry() {
+  let html = "";
+  // ─── ATR row ────────────────────────────────────────────────────────────
+  const atrTooltip1H = "<strong>ATR(14) @ 1H — for Intraday horizon</strong>\nValue of ATR(14) RMA on 1H timeframe. Read from Displacement Scanner table → MARKET CONTEXT section → 'ATR 1H' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 hour\n\n<strong>Used in distance checks (Intraday horizon only):</strong>\n• Barrier active if distance ≤ 2× ATR(1H)\n• Target premature if distance > 4× ATR(1H)\n• Post-sweep digestion if distance from swept extreme > 2× ATR(1H)\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
+  const atrTooltipD = "<strong>ATR(14) @ 1D — for Swing horizon</strong>\nValue of ATR(14) RMA on Daily timeframe. Read from Displacement Scanner table → MARKET CONTEXT section → 'ATR D' row.\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 day\n\n<strong>Used in distance checks (Swing horizon only):</strong>\n• Barrier active if distance ≤ 1× ATR(D)\n• Target premature if distance > 2.5× ATR(D)\n• Post-sweep digestion if distance from swept extreme > 1× ATR(D)\n\n<em>Multipliers (2.5× / 1×) are starting calibration — validate after 10-20 swing setups.</em>\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
+  const atrCurrent1H = (state.atr_1h !== undefined && state.atr_1h !== null) ? state.atr_1h : "";
+  const atrCurrentD = (state.atr_d !== undefined && state.atr_d !== null) ? state.atr_d : "";
+  const atrCurrentAsset = state.asset || "";
+  const horizonCurrent = state.trade_horizon || "";
+  const atr1hSet = state.atr_1h && state.atr_1h > 0;
+  const atrDSet = state.atr_d && state.atr_d > 0;
+  const atr1hActive = horizonCurrent === "Intraday";
+  const atrDActive = horizonCurrent === "Swing";
+  const activeBorder = "2px solid var(--green)";
+  const inactiveBorder = "1px solid var(--border)";
+  html += `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">`;
+  html += `<div style="display:flex;align-items:center;gap:8px">`;
+  html += `<span class="lbl" style="${atr1hActive ? 'color:var(--green);font-weight:700' : ''}"><span class="tip">ATR(14) @ 1H ⓘ<span class="tip-box">${atrTooltip1H}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
+  html += `<input type="text" inputmode="decimal" id="inp_atr_1h" class="mini-input" style="width:80px;border:${atr1hActive ? activeBorder : inactiveBorder}" placeholder="e.g. 0.5" value="${atrCurrent1H}" onchange="setATR1H(this.value)" onblur="setATR1H(this.value)">`;
+  html += `<span style="font-size:10px;color:${atr1hSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">${atr1hSet ? '✓' : '·'}</span>`;
+  html += `</div>`;
+  html += `<div style="display:flex;align-items:center;gap:8px">`;
+  html += `<span class="lbl" style="${atrDActive ? 'color:var(--green);font-weight:700' : ''}"><span class="tip">ATR(14) @ 1D ⓘ<span class="tip-box">${atrTooltipD}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
+  html += `<input type="text" inputmode="decimal" id="inp_atr_d" class="mini-input" style="width:80px;border:${atrDActive ? activeBorder : inactiveBorder}" placeholder="e.g. 2.69" value="${atrCurrentD}" onchange="setATRD(this.value)" onblur="setATRD(this.value)">`;
+  html += `<span style="font-size:10px;color:${atrDSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">${atrDSet ? '✓' : '·'}</span>`;
+  html += `</div>`;
+  html += `</div>`;
+
+  // ─── Geometry price fields ──────────────────────────────────────────────
+  const dlAboveCount = Array.isArray(state.draw_level_above) ? state.draw_level_above.length : (state.draw_level_above ? 1 : 0);
+  const dlBelowCount = Array.isArray(state.draw_level_below) ? state.draw_level_below.length : (state.draw_level_below ? 1 : 0);
+  const dlAboveSelected = dlAboveCount > 0;
+  const dlBelowSelected = dlBelowCount > 0;
+  const dlAboveTiered = dlAboveCount >= 2;
+  const dlBelowTiered = dlBelowCount >= 2;
+  const barAboveCount = Array.isArray(state.barrier_above) ? state.barrier_above.length : (state.barrier_above ? 1 : 0);
+  const barBelowCount = Array.isArray(state.barrier_below) ? state.barrier_below.length : (state.barrier_below ? 1 : 0);
+  const barAboveSelected = barAboveCount > 0;
+  const barBelowSelected = barBelowCount > 0;
+  const barAboveTiered = barAboveCount >= 2;
+  const barBelowTiered = barBelowCount >= 2;
+  const priceCurrentTooltip = "<strong>Entry Price</strong>\nIntended entry price (NOT current chart price) — anchor для всех distance calculations.\n\nPersistence: sessionStorage — survives F5 refresh, cleared on tab close + asset change.";
+  const priceTargetAboveTooltip = "<strong>Target Above Price — TP1</strong>\nPrice level <strong>nearest</strong> target above current. Used in DISTANCES panel + R-multiple computation.";
+  const priceTargetAbove2Tooltip = "<strong>Target Above 2 Price — TP2</strong>\nPrice level <strong>further</strong> target above current (runner). Visible when ≥2 targets selected.";
+  const priceTargetBelowTooltip = priceTargetAboveTooltip.replace(/Above/g, "Below").replace(/above/g, "below");
+  const priceTargetBelow2Tooltip = priceTargetAbove2Tooltip.replace(/Above/g, "Below").replace(/above/g, "below");
+  const priceBarrierAboveTooltip = "<strong>Barrier Above Price — B1</strong>\nPrice level <strong>nearest</strong> barrier above current (OB, Wick SNR, RN). Used in DISTANCES panel.";
+  const priceBarrierAbove2Tooltip = "<strong>Barrier Above 2 Price — B2</strong>\nPrice level of <strong>second</strong> barrier above current (further). Visible when ≥2 barriers selected.";
+  const priceBarrierBelowTooltip = priceBarrierAboveTooltip.replace(/Above/g, "Below").replace(/above/g, "below");
+  const priceBarrierBelow2Tooltip = priceBarrierAbove2Tooltip.replace(/Above/g, "Below").replace(/above/g, "below");
+  const priceStopTooltip = "<strong>Stop Price</strong>\nWhere your stop-loss order sits.\n\nUsed for:\n• DISTANCES panel — Stop row shows distance + ATR ratios for empirical calibration\n• R-multiple computation — TP1/TP2 RR labels (1:2, 1:3, etc.) calculated from Entry-Stop distance\n\nFor Long: Stop below Entry. For Short: Stop above Entry.";
+  html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);gap:12px;align-items:center;flex-wrap:wrap">`;
+  // 2026-05-04: Removed leading "Geometry ⓘ" label per user — each price field has its own label.
+  const renderPriceField = (field, label, tooltip, placeholder) => {
+    const cur = state["price_" + field];
+    const val = (cur !== undefined && cur !== null) ? cur : "";
+    const isSet = cur !== undefined && cur !== null && cur > 0;
+    let inner = "";
+    inner += `<div style="display:flex;align-items:center;gap:6px">`;
+    inner += `<span style="font-size:10px;color:var(--muted)"><span class="tip">${label} ⓘ<span class="tip-box">${tooltip}</span></span></span>`;
+    inner += `<input type="text" inputmode="decimal" id="inp_price_${field}" class="mini-input" style="width:80px" placeholder="${placeholder}" value="${val}" onchange="setPrice('${field}', this.value)" onblur="setPrice('${field}', this.value)">`;
+    inner += `<span style="font-size:10px;color:${isSet ? 'var(--green)' : 'var(--muted)'}">${isSet ? '✓' : '·'}</span>`;
+    inner += `</div>`;
+    return inner;
+  };
+  html += renderPriceField("current", "Entry Price", priceCurrentTooltip, "e.g. 76050");
+  html += renderPriceField("stop", "Stop", priceStopTooltip, "e.g. 75500");
+  if (dlAboveSelected) {
+    html += renderPriceField("target_above", dlAboveTiered ? "TP1↑" : "Target↑", priceTargetAboveTooltip, "e.g. 79428");
+    if (dlAboveTiered) html += renderPriceField("target_above_2", "TP2↑", priceTargetAbove2Tooltip, "e.g. 80000");
+  }
+  if (dlBelowSelected) {
+    html += renderPriceField("target_below", dlBelowTiered ? "TP1↓" : "Target↓", priceTargetBelowTooltip, "e.g. 75500");
+    if (dlBelowTiered) html += renderPriceField("target_below_2", "TP2↓", priceTargetBelow2Tooltip, "e.g. 75000");
+  }
+  if (barAboveSelected) {
+    html += renderPriceField("barrier_above", barAboveTiered ? "B1↑" : "Barrier↑", priceBarrierAboveTooltip, "e.g. 78000");
+    if (barAboveTiered) html += renderPriceField("barrier_above_2", "B2↑", priceBarrierAbove2Tooltip, "e.g. 79000");
+  }
+  if (barBelowSelected) {
+    html += renderPriceField("barrier_below", barBelowTiered ? "B1↓" : "Barrier↓", priceBarrierBelowTooltip, "e.g. 75000");
+    if (barBelowTiered) html += renderPriceField("barrier_below_2", "B2↓", priceBarrierBelow2Tooltip, "e.g. 74000");
+  }
+  html += `</div>`;
+
+  // ─── DISTANCES panel + Geometry Analysis ────────────────────────────────
+  html += renderDistancesPanel();
+  html += renderGeometryAnalysis();
+  return html;
+}
+
 function renderDistancesPanel() {
   const entry = state.price_current;
   const atr1h = state.atr_1h;
@@ -2225,137 +2303,57 @@ function render() {
     )) || (g.key === "dynamics" && computeOI15M() && computeOI15M().includes("⛔"));
     const statusIcon = (groupStop || computedStop) ? '<span class="status-icon" style="color:var(--red)">⛔</span>' : allFilled ? '<span class="status-icon" style="color:var(--green)">✓</span>' : '';
     
-    if (g.key === "entry_trigger") html += '<div class="col-row">';
-    
-    // O7.32 follow-up (2026-05-04): Setup Geometry pseudo-section — above Entry Rules.
-    // Bridges qualitative read (Section 2 Market Dynamics) with quantitative entry math (Section 5).
+    // 2026-05-04: GEOMETRY pseudo-section merged into ENTRY group (per user — single section).
+    // Trade group div opens here (BEFORE geometry rendering) so all geometry content lives inside ENTRY.
     if (g.key === "trade") {
-      html += `<div class="group" style="border-left:3px solid #6b7280">`;
-      html += `<div class="group-title" style="color:#6b7280">GEOMETRY</div>`;
-    }
-    if (g.key === "trade") {
-      // ─────────────────────────────────────────────────────────────────────
-      // Horizon + ATR + Wait Mode row (was Row 2.5, moved here for proximity to Geometry)
-      // ─────────────────────────────────────────────────────────────────────
-      const horizonTooltip = ""; // 2026-05-04: no longer rendered in Geometry — Hold Intent moved to Section 5 with new tooltip
-      const atrTooltip1H = "<strong>ATR(14) @ 1H — for Intraday horizon</strong>\nValue of ATR(14) RMA on 1H timeframe. Read from Displacement Scanner table → HTF CONTEXT section → 'ATR 1H' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 hour\n\n<strong>Used in distance checks (Intraday horizon only):</strong>\n• <strong>O7.2:</strong> Barrier active if distance ≤ 2× ATR(1H)\n• <strong>H1.22:</strong> Target premature if distance > 4× ATR(1H)\n• <strong>H1.25:</strong> Post-sweep digestion if distance from swept extreme > 2× ATR(1H)\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
-      const atrTooltipD = "<strong>ATR(14) @ 1D — for Swing horizon</strong>\nValue of ATR(14) RMA on Daily timeframe. Read from Displacement Scanner table → HTF CONTEXT section → 'ATR D' row (visible regardless of chart timeframe).\n\n<strong>Pine settings (verify):</strong>\n• Length = 14, Smoothing = RMA, Calculation Timeframe = 1 day\n\n<strong>Used in distance checks (Swing horizon only):</strong>\n• Barrier active if distance ≤ 1× ATR(D)\n• Target premature if distance > 2.5× ATR(D)\n• Post-sweep digestion if distance from swept extreme > 1× ATR(D)\n\n<em>Multipliers (2.5× / 1×) are starting calibration — validate after 10-20 swing setups.</em>\n\nSaves per-asset (BTC/ETH/SOL/PEPE).";
-      const waitTooltip = "<strong>Wait Mode override (H1.25 / H1.24 / O7.18 / H1.26)</strong>\nManual flag: setup структурно valid но resolution pending. Используй когда auto Mode не отражает реальность.\n\n<strong>Sub-types (H8.1: thresholds horizon-aware):</strong>\n• <strong>post-sweep digestion:</strong> sweep happened, цена сделала significant retreat от swept extreme (Intraday: > 2× ATR(1H); Swing: > 1× ATR(D)), waiting for re-test или decisive close\n• <strong>target premature:</strong> structurally valid setup но target слишком далеко (Intraday: > 4× ATR(1H); Swing: > 4× ATR(D)), watch for entry zone closer\n• <strong>inside barrier zone — H1.26 (2026-04-29):</strong> price находится внутри barrier zone (decision zone) — между upper/lower edges of HTF FVG/OB/Wick. Не trade сквозь barrier, а wait для break direction. Если break Up → Long bias, если break Down → Short bias. Manual selection — auto-detection requires barrier price input (not implemented yet).\n• <strong>htf pending (await LTF trigger) — O7.18 (2026-04-29):</strong> HTF context structurally valid (bias + targets + barriers OK), waiting for LTF trigger в Section 5 (BOS / Displacement / Sweep+retest) для commit к entry. Generic catch-all для \"setup готов, но input cue не пришёл yet\". Examples: multi-timeframe kinetic disagreement, news pending, structural break awaiting confirmation.\n\n<strong>Effect:</strong> Mode = Wait, conviction рассчитывается normally, journal records sub-type для analysis. Не блокирует setup — это discipline marker.\n\n<strong>O7.20 (2026-04-29):</strong> Wait Mode НЕ bypass'ит \"Too Many Risks\" blocker. При 3+ triggers status line дополнительно показывает <code>⛔Risks</code> badge — setup structurally blocked несмотря на Wait flag. Используй Wait для tracking discipline, не как override structural issues.\n\n<strong>(auto)</strong> = no override, system computes Mode normally.";
-      const atrCurrent1H = (state.atr_1h !== undefined && state.atr_1h !== null) ? state.atr_1h : "";
-      const atrCurrentD = (state.atr_d !== undefined && state.atr_d !== null) ? state.atr_d : "";
-      const atrCurrentAsset = state.asset || "";
-      const waitCurrent = state.wait_sub_type || "";
-      const horizonCurrent = state.trade_horizon || "";
-      // 2026-05-04: Horizon dropdown removed from this row — moved to Section 5 ENTRY RULES as "Hold Intent" (trader commitment, not geometric reachability).
-      // ATR fields remain here because they're needed for DISTANCES panel even before Hold Intent decided.
-      html += `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">`;
-      // ATR fields — both always visible at full opacity (per user 2026-05-04).
-      // Active ATR (matching Hold Intent) gets green-tinted border + bold label as visual highlight.
-      const atr1hSet = state.atr_1h && state.atr_1h > 0;
-      const atrDSet = state.atr_d && state.atr_d > 0;
-      const atr1hActive = horizonCurrent === "Intraday";
-      const atrDActive = horizonCurrent === "Swing";
-      const activeBorder = "2px solid var(--green)";
-      const inactiveBorder = "1px solid var(--border)";
-      // ATR(14) @ 1H
-      html += `<div style="display:flex;align-items:center;gap:8px">`;
-      html += `<span class="lbl" style="${atr1hActive ? 'color:var(--green);font-weight:700' : ''}"><span class="tip">ATR(14) @ 1H ⓘ<span class="tip-box">${atrTooltip1H}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
-      html += `<input type="text" inputmode="decimal" id="inp_atr_1h" class="mini-input" style="width:80px;border:${atr1hActive ? activeBorder : inactiveBorder}" placeholder="e.g. 0.5" value="${atrCurrent1H}" onchange="setATR1H(this.value)" onblur="setATR1H(this.value)">`;
-      html += `<span style="font-size:10px;color:${atr1hSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">${atr1hSet ? '✓' : '·'}</span>`;
-      html += `</div>`;
-      // ATR(14) @ 1D
-      html += `<div style="display:flex;align-items:center;gap:8px">`;
-      html += `<span class="lbl" style="${atrDActive ? 'color:var(--green);font-weight:700' : ''}"><span class="tip">ATR(14) @ 1D ⓘ<span class="tip-box">${atrTooltipD}</span></span>${atrCurrentAsset ? ` <span style="color:var(--muted);font-size:10px;font-weight:400">(${atrCurrentAsset})</span>` : ""}</span>`;
-      html += `<input type="text" inputmode="decimal" id="inp_atr_d" class="mini-input" style="width:80px;border:${atrDActive ? activeBorder : inactiveBorder}" placeholder="e.g. 2.69" value="${atrCurrentD}" onchange="setATRD(this.value)" onblur="setATRD(this.value)">`;
-      html += `<span style="font-size:10px;color:${atrDSet ? 'var(--green)' : 'var(--muted)'};font-weight:400">${atrDSet ? '✓' : '·'}</span>`;
-      html += `</div>`;
-      // 2026-05-04: Wait Mode dropdown moved to Section 5 ENTRY RULES under Hold Intent (as pills).
-      html += `</div>`;
-    }
-    if (g.key === "trade") {
-      // Geometry — Determine which fields visible based on selected types
-      const dlAboveCount = Array.isArray(state.draw_level_above) ? state.draw_level_above.length : (state.draw_level_above ? 1 : 0);
-      const dlBelowCount = Array.isArray(state.draw_level_below) ? state.draw_level_below.length : (state.draw_level_below ? 1 : 0);
-      const dlAboveSelected = dlAboveCount > 0;
-      const dlBelowSelected = dlBelowCount > 0;
-      const dlAboveTiered = dlAboveCount >= 2;
-      const dlBelowTiered = dlBelowCount >= 2;
-      const barAboveCount = Array.isArray(state.barrier_above) ? state.barrier_above.length : (state.barrier_above ? 1 : 0);
-      const barBelowCount = Array.isArray(state.barrier_below) ? state.barrier_below.length : (state.barrier_below ? 1 : 0);
-      const barAboveSelected = barAboveCount > 0;
-      const barBelowSelected = barBelowCount > 0;
-      const barAboveTiered = barAboveCount >= 2;
-      const barBelowTiered = barBelowCount >= 2;
-      const extremeSelected = Array.isArray(state.extreme) ? state.extreme.length > 0 : !!state.extreme;
-      // At least one conditional field visible? (Current Price is always visible)
-      const anyConditional = dlAboveSelected || dlBelowSelected || barAboveSelected || barBelowSelected || extremeSelected;
-      // Compose tooltips
-      const priceCurrentTooltip = "<strong>Entry Price (H9.1)</strong>\nIntended entry price (NOT current chart price) — anchor для всех distance calculations.\n\n<strong>Why entry price (not current):</strong> calibrating math vs intended trade structure, не floating chart state. После определения entry price все TP/SL distances становятся stable parameters.\n\n<strong>Auto-fills:</strong> Distance display in Details section (price × ATR ratio per target/barrier).\nAuto-suggest Wait Mode if target distance > horizon threshold.\nAuto-deactivate barrier if distance > horizon barrier threshold.\n\n<strong>Persistence:</strong> sessionStorage — survives F5 refresh, cleared on tab close + asset change.\nClears when asset switched (prices asset-specific, stale data risk).";
-      const priceTargetAboveTooltip = "<strong>Target Above Price — TP1 (H9.1)</strong>\nPrice level <strong>nearest</strong> target above current price.\n\n<strong>Distance check:</strong>\nIntraday: target premature if > 4× ATR(1H).\nSwing: target premature if > 2.5× ATR(D).\nWhen exceeded → auto-suggest Wait Mode = target_premature.\n\n<strong>H8.2 (2026-04-29):</strong> If ≥2 targets selected на этой стороне — TP2 input also appears для tiered TP1/TP2 setups (e.g. partial scalp + runner). Per-target horizon auto-detected.";
-      const priceTargetAbove2Tooltip = "<strong>Target Above 2 Price — TP2 (H8.2)</strong>\nPrice level <strong>further</strong> target above current (runner/extended target).\n\n<strong>H8.2 multi-horizon:</strong> TP1 might be Intraday-reachable while TP2 requires Swing horizon. System auto-detects native horizon per target.\n\n<strong>Common pattern:</strong> Scalp partial at TP1 (intraday-reachable), runner to TP2 (swing-reachable). Trade horizon = max hold willingness (Swing).";
-      const priceTargetBelowTooltip = priceTargetAboveTooltip.replace(/Above/g, "Below").replace(/above/g, "below");
-      const priceTargetBelow2Tooltip = priceTargetAbove2Tooltip.replace(/Above/g, "Below").replace(/above/g, "below");
-      const priceBarrierAboveTooltip = "<strong>Barrier Above Price — B1 (H9.1)</strong>\nPrice level <strong>nearest</strong> barrier above current (OB, Wick SNR, RN).\n\n<strong>Distance check (auto, replaces O7.2 manual rule):</strong>\nIntraday: barrier active if ≤ 2× ATR(1H).\nSwing: barrier active if ≤ 1× ATR(D).\nIf > threshold → barrier auto-marked inactive (Notes mark, не contributes к conviction triggers).\n\n<strong>H8.2 path-aware:</strong> barrier shown active per target path. If barrier sits between current и TP1 → blocks TP1 path. If только between current и TP2 → blocks TP2 path только.\n\n<strong>H8.3 (2026-04-29):</strong> If ≥2 barriers selected on this side — B2 input also appears для multi-barrier setups (e.g. nearest barrier + further barrier).";
-      const priceBarrierAbove2Tooltip = "<strong>Barrier Above 2 Price — B2 (H8.3)</strong>\nPrice level of <strong>second</strong> barrier above current (further barrier).\n\n<strong>H8.3 multi-barrier:</strong> Each barrier checked independently against each target path. Display shows per-barrier status (active/bypass/inactive).\n\n<strong>Common pattern:</strong> Two barriers on path к target — e.g. OB at 2364 + Round Number at 2400, both potentially blocking path to TP at 2422.";
-      const priceBarrierBelowTooltip = priceBarrierAboveTooltip.replace(/Above/g, "Below").replace(/above/g, "below");
-      const priceBarrierBelow2Tooltip = priceBarrierAbove2Tooltip.replace(/Above/g, "Below").replace(/above/g, "below");
-      const priceNearExtremeTooltip = "<strong>Near Extreme Price (H9.1)</strong>\nPrice level swept extreme (PWH, PMH, etc.) — для post-sweep digestion check.\n\n<strong>Distance check:</strong>\nWhen Recently Swept set + distance from extreme > horizon's digestion threshold (Intraday: 2× ATR(1H); Swing: 1× ATR(D)) → auto-suggest Wait Mode = post_sweep_digestion.\n\nLeave empty if extreme distance не actionable для current setup.";
-      // Single row: Current Price + conditional fields (compact)
-      html += `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);gap:12px;align-items:center;flex-wrap:wrap">`;
-      html += `<span class="lbl"><span class="tip">Geometry ⓘ<span class="tip-box">H9.1 — quantitative price coordinates. Enables auto distance checks + Wait Mode suggestions.<br><br>H8.2 — tiered targets (TP1+TP2) appear when ≥2 targets selected per side; per-target horizon auto-detected.<br><br>H8.3 — multi-barrier (B1+B2) appear when ≥2 barriers selected per side; each barrier path-aware checked independently.</span></span></span>`;
-      // Field renderer
-      const renderPriceField = (field, label, tooltip, placeholder) => {
-        const cur = state["price_" + field];
-        const val = (cur !== undefined && cur !== null) ? cur : "";
-        const isSet = cur !== undefined && cur !== null && cur > 0;
-        let inner = "";
-        inner += `<div style="display:flex;align-items:center;gap:6px">`;
-        inner += `<span style="font-size:10px;color:var(--muted)"><span class="tip">${label} ⓘ<span class="tip-box">${tooltip}</span></span></span>`;
-        inner += `<input type="text" inputmode="decimal" id="inp_price_${field}" class="mini-input" style="width:80px" placeholder="${placeholder}" value="${val}" onchange="setPrice('${field}', this.value)" onblur="setPrice('${field}', this.value)">`;
-        inner += `<span style="font-size:10px;color:${isSet ? 'var(--green)' : 'var(--muted)'}">${isSet ? '✓' : '·'}</span>`;
-        inner += `</div>`;
-        return inner;
-      };
-      html += renderPriceField("current", "Entry Price", priceCurrentTooltip, "e.g. 76050");
-      // Above side: TP1 + (TP2 if tiered)
-      if (dlAboveSelected) {
-        html += renderPriceField("target_above", dlAboveTiered ? "TP1↑" : "Target↑", priceTargetAboveTooltip, "e.g. 79428");
-        if (dlAboveTiered) html += renderPriceField("target_above_2", "TP2↑", priceTargetAbove2Tooltip, "e.g. 80000");
+      html += `<div class="group" style="border-left:3px solid ${g.color}">`;
+      html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}</div>`;
+      // 2026-05-04: Trigger + Confirm + Displacement on single row (per user — compact entry signals).
+      // Rendered manually here (skipped in standard field loop below).
+      const trigCurrent = state.trigger || "";
+      const conCurrent = state.confirm || "";
+      html += `<div class="row" style="gap:14px;align-items:center;flex-wrap:wrap">`;
+      // Trigger
+      html += `<div style="display:flex;align-items:center;gap:4px">`;
+      html += `<span class="lbl">Trigger</span>`;
+      for (const opt of ["BOS", "Liq.Sweep"]) {
+        const cls = trigCurrent === opt ? "pill sel" : "pill";
+        html += `<button class="${cls}" onclick="pick('trigger','${opt}')">${opt}</button>`;
       }
-      // Below side: TP1 + (TP2 if tiered)
-      if (dlBelowSelected) {
-        html += renderPriceField("target_below", dlBelowTiered ? "TP1↓" : "Target↓", priceTargetBelowTooltip, "e.g. 75500");
-        if (dlBelowTiered) html += renderPriceField("target_below_2", "TP2↓", priceTargetBelow2Tooltip, "e.g. 75000");
+      html += `</div>`;
+      // Confirm
+      html += `<div style="display:flex;align-items:center;gap:4px">`;
+      html += `<span class="lbl">Confirm</span>`;
+      for (const opt of ["Holds", "Retest OK", "Not yet"]) {
+        const cls = conCurrent === opt ? "pill sel" : "pill";
+        html += `<button class="${cls}" onclick="pick('confirm','${opt}')">${opt}</button>`;
       }
-      // H8.3: Above barrier(s)
-      if (barAboveSelected) {
-        html += renderPriceField("barrier_above", barAboveTiered ? "B1↑" : "Barrier↑", priceBarrierAboveTooltip, "e.g. 78000");
-        if (barAboveTiered) html += renderPriceField("barrier_above_2", "B2↑", priceBarrierAbove2Tooltip, "e.g. 79000");
+      html += `</div>`;
+      // Displacement (4 checkboxes + Pass/Fail)
+      html += `<div style="display:flex;align-items:center;gap:4px">`;
+      html += `<span class="lbl">Disp</span>`;
+      html += `<div class="disp-row">`;
+      for (const dc of DISP_CRIT) {
+        const ch = dispState[dc.id];
+        html += `<label class="disp-check ${ch?'checked':''}"><input type="checkbox" ${ch?'checked':''} onchange="toggleDisp('${dc.id}')">${dc.label}</label>`;
       }
-      // H8.3: Below barrier(s)
-      if (barBelowSelected) {
-        html += renderPriceField("barrier_below", barBelowTiered ? "B1↓" : "Barrier↓", priceBarrierBelowTooltip, "e.g. 75000");
-        if (barBelowTiered) html += renderPriceField("barrier_below_2", "B2↓", priceBarrierBelow2Tooltip, "e.g. 74000");
+      if (state.disp) {
+        const pass = state.disp === "Pass✅";
+        html += `<span class="disp-result ${pass?'disp-pass':'disp-fail'}">→ ${state.disp}</span>`;
       }
-      // Note (2026-04-29 UX): Extreme price input now rendered inline with HTF Extreme buttons row, not here.
+      html += `</div></div>`;
       html += `</div>`;
     }
-    // 2026-05-04: Distances panel — always visible reference under Geometry.
-    // Raw data per filled price field, no thresholds, no auto-suggestions.
-    // Trader sees distance + ATR ratios and decides manually. Builds empirical intuition.
-    if (g.key === "trade") {
-      html += renderDistancesPanel();
-      // 2026-05-04: Geometry analysis (moved from Verbose Details panel per user) — only when verbose toggle ON.
-      html += renderGeometryAnalysis();
-    }
-    if (g.key === "trade") {
+    // 2026-05-04: Geometry rendering (ATR + price fields + DISTANCES + Analysis) extracted to renderTradeGeometry().
+    // Called LATER (right before trade_nums) so Trigger/Confirm/Displacement render FIRST in MARKET DEAL section.
+    // 2026-05-04: trade group div was opened above (before geometry). Don't open again here.
+    if (g.key !== "trade") {
+      html += `<div class="group" style="border-left:3px solid ${g.color}">`;
+      html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}`;
+      if (g.key === "htf") html += buildHTFStatusInline();
+      if (g.key === "dynamics") html += buildDynamicsStatusInline();
       html += `</div>`;
     }
-    html += `<div class="group" style="border-left:3px solid ${g.color}">`;
-    html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}`;
-    if (g.key === "htf") html += buildHTFStatusInline();
-    if (g.key === "dynamics") html += buildDynamicsStatusInline();
-    html += `</div>`;
     
     if (g.key === "htf") {
       // ===== Compact HTF Context layout (April 21, 2026) =====
@@ -2573,6 +2571,8 @@ function render() {
     } else {
     for (const f of g.fields) {
       if (f.id === "disp") {
+        // 2026-05-04: For trade group, disp rendered manually inline with trigger+confirm — skip here.
+        if (g.key === "trade") continue;
         html += `<div class="row"><span class="lbl">${f.label}</span><div class="disp-row">`;
         for (const dc of DISP_CRIT) {
           const ch = dispState[dc.id];
@@ -2587,6 +2587,10 @@ function render() {
       }
       // 2026-05-04: corrcheck rendered inline with Hold Intent in trade_nums section — skip standard render.
       if (f.id === "corrcheck") {
+        continue;
+      }
+      // 2026-05-04: trigger + confirm rendered manually on single row in trade group (with Displacement) — skip here.
+      if (g.key === "trade" && (f.id === "trigger" || f.id === "confirm")) {
         continue;
       }
       // 3-column layout with explicit row/col positions for HTF fields
@@ -2775,21 +2779,14 @@ function render() {
       html += renderVerboseHTF();
     }
 
-    if (g.key === "entry_logic") {
-      const dispOK = state.disp === "Pass✅";
-      let style = "—"; let styleColor = "var(--muted)";
-      if (dispOK) { style = "Displacement ✅"; styleColor = "var(--green)"; }
-      else if (state.disp === "Fail⛔") { style = "Displacement ❌"; styleColor = "var(--red)"; }
-      html += `<div class="row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">`;
-      html += `<span style="font-size:11px;font-weight:600;color:${styleColor}">${style}</span>`;
-      html += `</div>`;
-    }
     if (g.key === "htf") {
       // Status summary moved to section header via buildHTFStatusInline().
       // O7.32 (2026-05-03): Verbose details panel moved to Market Dynamics section (consolidated).
     }
     if (g.extra === "trade_nums") {
-      // SECTION 8: AGGREGATOR — all sections combined
+      // 2026-05-04: Restructured into 3 cards (COMMITMENTS / SIZING / VERDICT) per user.
+      // Geometry (ATR + Entry/Stop/TPs + DISTANCES + Analysis) rendered HERE — after Trigger/Confirm/Disp standard fields above.
+      html += renderTradeGeometry();
       const dir = computeDirection();
       const dirColor = dir === "Long" ? "var(--green)" : dir === "Short" ? "var(--red)" : "var(--muted)";
       const {label: convLabel, triggers: convTriggers} = computeConviction();
@@ -2797,57 +2794,67 @@ function render() {
       const convText = convLabel ? `${convLabel} (-${convTriggers})` : "—";
       const mode = computeMode();
       const mColor = mode === "Continuation" ? "var(--green)" : mode === "Reversal" ? "var(--red)" : mode === "No Trade" ? "var(--red)" : "var(--muted)";
-      const riskPct = convLabel === "High" ? "2%" : convLabel === "Standard" ? "1%" : convLabel === "Low" ? "0.5%" : "—";
-      const rrTarget = convLabel === "High" ? "1:2 – 1:2.5" : "1:2";
+      const riskPctSuggested = convLabel === "High" ? "2%" : convLabel === "Standard" ? "1%" : convLabel === "Low" ? "0.5%" : "—";
       // Entry style from Logic
       const dispOK = state.disp === "Pass✅";
       const oiGrowth = computeOI15M() === "Confirms✅";
       const entryStyle = dispOK && oiGrowth ? "Immediate" : dispOK ? "Wait retest" : "—";
       const esColor = entryStyle === "Immediate" ? "var(--green)" : entryStyle === "Wait retest" ? "var(--yellow, #ca8a04)" : "var(--muted)";
-      
-      html += `<div class="row" style="margin-bottom:6px">`;
-      html += `<span class="lbl">Dir</span><span style="font-size:15px;font-weight:800;color:${dirColor}">${dir||"—"}</span>`;
-      html += `<span class="lbl" style="margin-left:10px">Conv</span><span style="font-size:15px;font-weight:800;color:${convColor}">${convText}</span>`;
-      html += `<span class="lbl" style="margin-left:10px">Mode</span><span style="font-size:13px;font-weight:700;color:${mColor}">${mode||"—"}</span>`;
-      html += `<span class="lbl" style="margin-left:10px">Risk</span><span style="font-size:13px;font-weight:700">${riskPct}</span>`;
-      html += `<span class="lbl" style="margin-left:10px">RR</span><span style="font-size:13px;font-weight:700">${rrTarget}</span>`;
-      html += `<span class="lbl" style="margin-left:10px">Entry</span><span style="font-size:13px;font-weight:700;color:${esColor}">${entryStyle}</span>`;
-      html += `</div>`;
-      // 2026-05-04: Hold Intent pills (was "Horizon" dropdown in Geometry).
-      // Renamed to clarify: this is trader commitment "how long to hold" — NOT geometric reachability question.
-      // Geometric reachability now lives in DISTANCES panel under Geometry per-target.
-      // Combined with BTC/ETH/SOL correlation check on same row to optimize vertical space.
-      const holdIntentTooltip = "<strong>Hold Intent — trader commitment</strong>\nКак долго ты готов держать сделку. Это <em>твоё решение</em>, не выведенное из геометрии.\n\n<strong>Intraday:</strong> hours, same session entry/exit. Active ATR = ATR(14) @ 1H для distance interpretations.\n\n<strong>Swing:</strong> 2-7 days, multi-session hold. Active ATR = ATR(14) @ 1D.\n\n<strong>Why separate from geometric question:</strong>\nDISTANCES panel (под Geometry) показывает per-target horizon classification — TP1 может быть Intraday-reachable, TP2 — Swing-only. Single Hold Intent value не captures это, и не должно. Это про твой commitment, не про reachability.\n\n<strong>Effect:</strong>\n• Determines which ATR is highlighted (active opacity 1.0 vs faded 0.55)\n• Logged в Trade Journal как trade type metadata\n• Used для post-analysis (win rate Intraday vs Swing, average holding time, etc.)\n\n<strong>Optional:</strong> для Wait Mode setups можно не выбирать (no entry yet → no commitment yet).";
-      const corrCheckTooltip = "<strong>Correlation check — BTC/ETH/SOL</strong>\nMax 1 concurrent trade across BTC/ETH/SOL (correlated assets). Verify no open conflicting position before entry.\n\n<strong>No open trades:</strong> clean — proceed with this setup.\n<strong>Conflict ⛔:</strong> existing concurrent BTC/ETH/SOL trade — STOP, не входи (prevents correlated cascade losses).\n\nApplies только к BTC/ETH/SOL group. PEPE / other alts — separate, не triggered этим check.";
-      html += `<div class="row" style="margin-bottom:6px;align-items:center">`;
-      // Hold Intent
-      html += `<span class="lbl"><span class="tip">Hold Intent ⓘ<span class="tip-box">${holdIntentTooltip}</span></span></span>`;
+
+      // Compute R-multiples from state (Geometry section is source of truth for prices)
+      const entryP = state.price_current;
+      const stopP = state.price_stop;
+      let tp1P = null, tp2P = null;
+      if (dir === "Long") {
+        tp1P = state.price_target_above;
+        tp2P = state.price_target_above_2;
+      } else if (dir === "Short") {
+        tp1P = state.price_target_below;
+        tp2P = state.price_target_below_2;
+      }
+      const riskAbs = (entryP && stopP && entryP !== stopP) ? Math.abs(entryP - stopP) : 0;
+      const r1 = (riskAbs && tp1P) ? Math.abs(tp1P - entryP) / riskAbs : null;
+      const r2 = (riskAbs && tp2P) ? Math.abs(tp2P - entryP) / riskAbs : null;
+      const rColor = (r) => r === null ? "var(--muted)" : (r >= 2 ? "var(--green)" : r >= 1 ? "var(--yellow, #ca8a04)" : "var(--red)");
+
+      // Tooltips
+      const holdIntentTooltip = "<strong>Hold Intent — trader commitment</strong>\nКак долго ты готов держать сделку. Это <em>твоё решение</em>, не выведенное из геометрии.\n\n<strong>Intraday:</strong> hours, same session entry/exit. Active ATR = ATR(14) @ 1H для distance interpretations.\n\n<strong>Swing:</strong> 2-7 days, multi-session hold. Active ATR = ATR(14) @ 1D.\n\n<strong>Why separate from geometric question:</strong>\nDISTANCES panel показывает per-target horizon classification — TP1 может быть Intraday-reachable, TP2 — Swing-only. Single Hold Intent value не captures это, и не должно.\n\n<strong>Optional:</strong> для Wait Mode setups можно не выбирать.";
+      const corrCheckTooltip = "<strong>Correlation check — BTC/ETH/SOL</strong>\nMax 1 concurrent trade across BTC/ETH/SOL.\n\n<strong>No open trades:</strong> clean — proceed.\n<strong>Conflict ⛔:</strong> existing concurrent BTC/ETH/SOL trade — STOP.\n\nApplies только к BTC/ETH/SOL group. Other alts — separate.";
+      const waitTooltipShort = "<strong>Wait Mode — discipline marker</strong>\n\"Setup структурно valid, но я НЕ entry yet — фиксирую почему.\"\n\n<strong>post-sweep:</strong> sweep случился, цена ушла далеко от swept extreme. Wait для re-test или fresh BOS.\n<strong>target far:</strong> target слишком далеко (DISTANCES panel HORIZON = OutOfRange). Wait для closer entry zone.\n<strong>inside barrier:</strong> цена внутри barrier zone. Wait для break direction.\n<strong>htf ready:</strong> HTF полностью готов, 15M trigger ещё не fired. Catch-all для discipline.\n\nClick selected pill again to clear.";
+
+      // Pills state
       const hiCurrent = state.trade_horizon || "";
       const hiIntradayCls = hiCurrent === "Intraday" ? "pill sel" : "pill";
       const hiSwingCls    = hiCurrent === "Swing"    ? "pill sel" : "pill";
-      html += `<button class="${hiIntradayCls}" onclick="pick('trade_horizon','Intraday')">Intraday</button>`;
-      html += `<button class="${hiSwingCls}" onclick="pick('trade_horizon','Swing')">Swing</button>`;
-      // Separator
-      html += `<span style="color:var(--muted);margin:0 8px">·</span>`;
-      // BTC/ETH/SOL correlation check (was rendered separately, merged here for vertical compactness)
-      html += `<span class="lbl"><span class="tip">BTC/ETH/SOL ⓘ<span class="tip-box">${corrCheckTooltip}</span></span></span>`;
       const ccCurrent = state.corrcheck || "";
       const ccNoOpenCls = ccCurrent === "No open trades" ? "pill sel" : "pill";
       const ccConflictCls = ccCurrent === "Conflict⛔" ? "pill sel-stop" : "pill";
-      html += `<button class="${ccNoOpenCls}" onclick="pick('corrcheck','No open trades')">No open trades</button>`;
-      html += `<button class="${ccConflictCls}" onclick="pick('corrcheck','Conflict⛔')">Conflict⛔</button>`;
-      html += `</div>`;
-      // 2026-05-04: Wait Mode pills — moved from GEOMETRY dropdown to Section 5 under Hold Intent (per user feedback Wait felt like noise in old position).
-      // Sub-types same logic as before (post_sweep_digestion / target_premature / inside_barrier / htf_pending).
-      // Pills allow toggle: click pill → select; click selected pill → clear (back to no-Wait).
-      const waitTooltipShort = "<strong>Wait Mode — discipline marker</strong>\n\"Setup структурно valid, но я НЕ entry yet — фиксирую почему.\"\n\nCheck DISTANCES panel + HTF context first, потом выбери reason если applicable.\n\n<strong>post-sweep:</strong> sweep случился, но цена ушла далеко от swept extreme (> 2× ATR(1H) Intraday / > 1× ATR(D) Swing). Reversal momentum exhausted. Wait для re-test или fresh BOS.\n<strong>target far:</strong> setup OK, но target слишком далеко (DISTANCES panel показывает HORIZON = OutOfRange для твоего Hold Intent). Wait для closer entry zone.\n<strong>inside barrier:</strong> цена внутри barrier zone (FVG/OB/SNR body). Trading сквозь barrier dangerous. Wait для break direction.\n<strong>htf ready:</strong> HTF структура полностью готова, но 15M trigger ещё не fired (no BOS, no Displacement). Catch-all для discipline.\n\nClick selected pill again to clear Wait.\nNot mandatory — можно оставить пустым если нет конкретной wait reason.";
-      html += `<div class="row" style="margin-bottom:6px;align-items:center">`;
-      html += `<span class="lbl"><span class="tip">Wait ⓘ<span class="tip-box">${waitTooltipShort}</span></span></span>`;
       const wsCurrent = state.wait_sub_type || "";
       const wsPostCls    = wsCurrent === "post_sweep_digestion" ? "pill sel" : "pill";
       const wsTargetCls  = wsCurrent === "target_premature"     ? "pill sel" : "pill";
       const wsBarrierCls = wsCurrent === "inside_barrier"       ? "pill sel" : "pill";
       const wsHtfCls     = wsCurrent === "htf_pending"          ? "pill sel" : "pill";
+
+      // 2026-05-04: s8verdict/s8color computation removed — top-of-page verdict (vEl) is single source of truth.
+
+      const cardStyle = `padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(239,68,68,0.02);margin-top:6px`;
+      const cardHeaderStyle = `font-size:10px;font-weight:700;letter-spacing:0.06em;margin-bottom:5px;color:var(--muted)`;
+
+      // ─── CARD 1: COMMITMENTS (frame-only style — header dropped 2026-05-04 per user, matches HTF cards) ─
+      html += `<div style="${cardStyle}">`;
+      // Hold Intent + Corr row
+      html += `<div class="row" style="margin-bottom:6px;align-items:center">`;
+      html += `<span class="lbl"><span class="tip">Hold Intent ⓘ<span class="tip-box">${holdIntentTooltip}</span></span></span>`;
+      html += `<button class="${hiIntradayCls}" onclick="pick('trade_horizon','Intraday')">Intraday</button>`;
+      html += `<button class="${hiSwingCls}" onclick="pick('trade_horizon','Swing')">Swing</button>`;
+      html += `<span style="color:var(--muted);margin:0 8px">·</span>`;
+      html += `<span class="lbl"><span class="tip">BTC/ETH/SOL ⓘ<span class="tip-box">${corrCheckTooltip}</span></span></span>`;
+      html += `<button class="${ccNoOpenCls}" onclick="pick('corrcheck','No open trades')">No open trades</button>`;
+      html += `<button class="${ccConflictCls}" onclick="pick('corrcheck','Conflict⛔')">Conflict⛔</button>`;
+      html += `</div>`;
+      // Wait Mode row
+      html += `<div class="row" style="margin-bottom:0;align-items:center">`;
+      html += `<span class="lbl"><span class="tip">Wait ⓘ<span class="tip-box">${waitTooltipShort}</span></span></span>`;
       html += `<button class="${wsPostCls}"    onclick="pick('wait_sub_type','post_sweep_digestion')">post-sweep</button>`;
       html += `<button class="${wsTargetCls}"  onclick="pick('wait_sub_type','target_premature')">target far</button>`;
       html += `<button class="${wsBarrierCls}" onclick="pick('wait_sub_type','inside_barrier')">inside barrier</button>`;
@@ -2856,30 +2863,41 @@ function render() {
         html += `<span style="font-size:10px;color:var(--yellow,#ca8a04);font-weight:600;margin-left:6px">⚠ Wait active</span>`;
       }
       html += `</div>`;
-      html += `<div class="row" style="margin-top:2px">`;
-      html += `<span class="lbl">Account $</span><input class="mini-input" id="inp_account" oninput="saveInput(this)">`;
-      html += `<span class="lbl">Risk %</span><input class="mini-input w48" id="inp_risk" oninput="saveInput(this)">`;
-      html += `<span class="lbl">Entry</span><input class="mini-input" id="inp_entry" oninput="saveInput(this);renderRR()">`;
-      html += `<span class="lbl">Stop</span><input class="mini-input" id="inp_stop" oninput="saveInput(this);renderRR()">`;
-      html += `</div><div class="row">`;
-      html += `<span class="lbl">TP1</span><input class="mini-input" id="inp_tp1" oninput="saveInput(this);renderRR()"><span id="rr1" style="font-size:11px;font-weight:600;color:var(--muted);margin-left:2px"></span>`;
-      html += `<span class="lbl">TP2</span><input class="mini-input" id="inp_tp2" oninput="saveInput(this);renderRR()"><span id="rr2" style="font-size:11px;font-weight:600;color:var(--muted);margin-left:2px"></span>`;
-      html += `<span class="lbl">TP3</span><input class="mini-input" id="inp_tp3" oninput="saveInput(this);renderRR()"><span id="rr3" style="font-size:11px;font-weight:600;color:var(--muted);margin-left:2px"></span>`;
       html += `</div>`;
-      // Verdict inside section 8
-      let s8verdict = ""; let s8color = "var(--muted)";
-      if (hasReversalNoExtreme) { s8verdict = "🔴 REVERSAL — SELECT EXTREME"; s8color = "var(--red)"; }
-      else if (hasStop) { s8verdict = "🔴 NO TRADE"; s8color = "var(--red)"; }
-      else if (convTriggers >= 3) { s8verdict = "🔴 RISKS (-" + convTriggers + ")"; s8color = "var(--red)"; }
-      else if (state.confirm === "Not yet") { s8verdict = "🟡 WAIT CONFIRM"; s8color = "var(--yellow, #ca8a04)"; }
-      else if (GROUPS.every(g => g.fields.every(f => f.optional || (f.id === "disp" ? state.disp : state[f.id])))) { s8verdict = "🟢 TRADE"; s8color = "var(--green)"; }
-      else { s8verdict = "⚪ Fill all sections"; s8color = "var(--muted)"; }
-      html += `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);text-align:center">`;
-      html += `<span style="font-size:16px;font-weight:800;letter-spacing:0.1em;color:${s8color}">${s8verdict}</span>`;
+
+      // ─── CARD 2: SIZING (frame-only) ─────────────────────────────────────
+      html += `<div style="${cardStyle}">`;
+      html += `<div class="row" style="align-items:center">`;
+      html += `<span class="lbl">Account $</span><input class="mini-input" id="inp_account" oninput="saveInput(this)">`;
+      html += `<span class="lbl" style="margin-left:14px">Risk %</span><input class="mini-input w48" id="inp_risk" oninput="saveInput(this)">`;
+      html += `<span style="font-size:11px;color:var(--muted);margin-left:14px">suggested: <b style="color:${convColor}">${riskPctSuggested}</b> <span style="font-style:italic">(based on ${convLabel||"—"} Conviction)</span></span>`;
+      html += `</div>`;
+      html += `</div>`;
+
+      // ─── CARD 3: VERDICT (frame-only, single-row per user 2026-05-04) ────
+      html += `<div style="${cardStyle}">`;
+      html += `<div class="row" style="font-size:12px;align-items:center;flex-wrap:wrap;gap:0">`;
+      html += `<span style="font-weight:800;color:${dirColor}">${dir||"—"}</span>`;
+      html += `<span style="margin:0 8px;color:var(--muted)">·</span>`;
+      html += `<span style="font-weight:800;color:${convColor}">${convText}</span>`;
+      html += `<span style="margin:0 8px;color:var(--muted)">·</span>`;
+      html += `<span style="font-weight:700;color:${mColor}">${mode||"—"}</span>`;
+      if (r1 !== null) {
+        html += `<span style="margin:0 8px;color:var(--muted)">·</span>`;
+        html += `<span style="color:var(--muted)">TP1 <b style="color:${rColor(r1)}">1:${r1.toFixed(1)}</b></span>`;
+      }
+      if (r2 !== null) {
+        html += `<span style="margin:0 8px;color:var(--muted)">·</span>`;
+        html += `<span style="color:var(--muted)">TP2 <b style="color:${rColor(r2)}">1:${r2.toFixed(1)}</b></span>`;
+      }
+      if (entryStyle !== "—") {
+        html += `<span style="margin:0 8px;color:var(--muted)">·</span>`;
+        html += `<span style="color:${esColor};font-weight:600">${entryStyle}</span>`;
+      }
+      html += `</div>`;
       html += `</div>`;
     }
     html += `</div>`;
-    if (g.key === "entry_logic") html += '</div>';
   }
   el.innerHTML = html;
   
@@ -3177,24 +3195,10 @@ function saveInput(el) {
 }
 
 function renderRR() {
-  const entry = parseFloat(document.getElementById("inp_entry")?.value);
-  const stop = parseFloat(document.getElementById("inp_stop")?.value);
-  const tps = [
-    {el: document.getElementById("rr1"), val: parseFloat(document.getElementById("inp_tp1")?.value)},
-    {el: document.getElementById("rr2"), val: parseFloat(document.getElementById("inp_tp2")?.value)},
-    {el: document.getElementById("rr3"), val: parseFloat(document.getElementById("inp_tp3")?.value)}
-  ];
-  const risk = (entry && stop && entry !== stop) ? Math.abs(entry - stop) : 0;
-  const rrTexts = [];
-  for (const tp of tps) {
-    if (!tp.el) continue;
-    if (!risk || !tp.val) { tp.el.textContent = ""; continue; }
-    const rr = (Math.abs(tp.val - entry) / risk).toFixed(1);
-    tp.el.textContent = "1:" + rr;
-    tp.el.style.color = parseFloat(rr) >= 2 ? "var(--green)" : parseFloat(rr) >= 1 ? "var(--yellow, #ca8a04)" : "var(--red)";
-    rrTexts.push("1:" + rr);
-  }
-  localStorage.setItem('tc_rr', rrTexts.join(" / "));
+  // 2026-05-04: DEAD CODE retained as no-op.
+  // Trade execution inputs (Entry/Stop/TP1/TP2) merged into Geometry section.
+  // R-multiples now computed inline in trade_nums Verdict card from state.price_* values.
+  // Keeping function definition to avoid ReferenceError if external code calls it.
 }
 
 // ============================================
@@ -3296,7 +3300,7 @@ function restoreTimer() {
 
 function resetAll() {
   state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false};
-  ['state','disp','risk','entry','stop','tp1','tp2','tp3','rr','notes','screenshot','account'].forEach(k => localStorage.removeItem('tc_'+k));
+  ['state','disp','risk','entry','stop','tp1','tp2','rr','notes','screenshot','account'].forEach(k => localStorage.removeItem('tc_'+k));
   localStorage.removeItem('tc_state');
   // B8 fix (2026-05-01): clear sessionStorage H9.1 price fields too.
   // Without this, F5 после RESET reloaded stale prices от previous setup via loadAllPrices() on init.
@@ -3321,9 +3325,6 @@ function toggleSettings() {
   if (p.style.display === "block") {
     document.getElementById("cfg_worker").value = localStorage.getItem("tc_worker") || "";
     document.getElementById("cfg_token").value = localStorage.getItem("tc_token") || "";
-    // Verbose default ON if never set
-    const vStored = localStorage.getItem("tc_verbose");
-    document.getElementById("cfg_verbose").checked = vStored === null ? true : vStored === "1";
     // Suggestions default OFF
     document.getElementById("cfg_suggestions").checked = localStorage.getItem("tc_show_suggestions") === "1";
   }
@@ -3331,14 +3332,13 @@ function toggleSettings() {
 function saveCfg() {
   localStorage.setItem("tc_worker", document.getElementById("cfg_worker").value);
   localStorage.setItem("tc_token", document.getElementById("cfg_token").value);
-  const v = document.getElementById("cfg_verbose");
-  if (v) localStorage.setItem("tc_verbose", v.checked ? "1" : "0");
   const s = document.getElementById("cfg_suggestions");
   if (s) localStorage.setItem("tc_show_suggestions", s.checked ? "1" : "0");
 }
 function isVerboseOn() {
-  const v = localStorage.getItem("tc_verbose");
-  return v === null ? true : v === "1";  // default ON
+  // 2026-05-04: Unified with inline "▶ Details" button (tc_details_open).
+  // Default OFF — verbose blocks (Path Transition, Geometry Analysis, Verbose HTF) only show when Details expanded.
+  return localStorage.getItem("tc_details_open") === "1";
 }
 
 // 2026-05-04: Suggestions toggle (H8.4 horizon, O7.17 target, H1.25 sweep digestion).
@@ -3376,8 +3376,6 @@ const FIELD_MAP = {
   f_trend:["",null],
   f_price:["",null],
   f_oi:["",null],
-  opens_dist:["",null],
-  origin_dist:["",null],
   corrcheck:["",null]
 };
 
@@ -3596,7 +3594,7 @@ async function saveToNotion() {
   if (state.price_near_extreme    !== undefined) props["Near Extreme Price"]    = state.price_near_extreme;
 
   // Numbers
-  const numMap = {account:"Account $", risk:"Risk %", entry:"Entry Price", stop:"Stop Price", tp1:"TP1", tp2:"TP2", tp3:"TP3"};
+  const numMap = {account:"Account $", risk:"Risk %", entry:"Entry Price", stop:"Stop Price", tp1:"TP1", tp2:"TP2"};
   for (const [k, prop] of Object.entries(numMap)) {
     const v = localStorage.getItem("tc_"+k);
     if (v && !isNaN(parseFloat(v))) props[prop] = parseFloat(v);

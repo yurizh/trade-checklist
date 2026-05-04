@@ -795,9 +795,11 @@ function renderGeometryAnalysis() {
 
   let out = `<div style="margin-top:6px;padding:8px 10px;background:rgba(107,114,128,0.04);border:1px solid var(--border);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6">`;
   out += `<div style="font-weight:700;color:var(--muted);margin-bottom:4px;letter-spacing:0.05em;font-size:10px">GEOMETRY ANALYSIS <span style="font-weight:400;font-style:italic">· path-aware reachability</span></div>`;
-  out += `<div style="margin-bottom:6px"><b>Geometry:</b>`;
-  if (!state.price_current) out += ` <span style="color:var(--muted);font-size:10px">(set Current Price для distance checks)</span>`;
-  out += `</div>`;
+  // 2026-05-04: 2-column layout per user — geometry rows + suggestions (left) | position sizing (right).
+  // Standalone "Geometry:" label dropped — header is enough.
+  out += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">`;
+  out += `<div>`;  // ── LEFT COL: geometry rows + suggestion banners ──
+  if (!state.price_current) out += `<div style="color:var(--muted);font-size:10px;margin-bottom:4px">(set Current Price для distance checks)</div>`;
   out += `<div style="padding-left:12px;color:var(--muted);margin-bottom:8px;font-size:10px">`;
   if (!activeATR()) {
     if (state.atr_1h && state.atr_d && state.price_current !== undefined) {
@@ -931,6 +933,10 @@ function renderGeometryAnalysis() {
     }
   }
 
+  // 2026-05-04: Close LEFT col (geometry rows), open RIGHT col (POSITION SIZING) for 2-col layout.
+  out += `</div>`;  // close left col
+  out += `<div>`;   // ── RIGHT COL: position sizing ──
+
   // 2026-05-04: Position Sizing math — added per user. Concrete position size + leverage based on Account, Risk%, Entry, Stop.
   // Renders only when Account + Risk% + Entry + Stop all filled. Otherwise shows a hint listing missing inputs.
   const accountStr = localStorage.getItem('tc_account');
@@ -951,7 +957,7 @@ function renderGeometryAnalysis() {
     const asset = state.asset || "asset";
     const leverageColor = leverage <= 1 ? "var(--green)" : leverage <= 3 ? "var(--yellow, #ca8a04)" : "var(--red)";
     const leverageNote = leverage <= 1 ? "no leverage needed" : leverage <= 3 ? "moderate leverage" : "⚠ high leverage";
-    out += `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border)">`;
+    out += `<div>`;
     out += `<div style="font-weight:700;color:var(--muted);margin-bottom:4px;letter-spacing:0.05em;font-size:10px">POSITION SIZING <span style="font-weight:400;font-style:italic">· concrete numbers</span></div>`;
     out += `<div style="padding-left:12px;font-size:10px;line-height:1.7">`;
     out += `<div>Risk amount: <b>$${fmtUSD(riskAmount)}</b> <span style="color:var(--muted)">($${fmtUSD(accountNum)} × ${riskNum}%)</span></div>`;
@@ -967,13 +973,16 @@ function renderGeometryAnalysis() {
     if (!entryPrice || entryPrice <= 0) missing.push("Entry Price");
     if (!stopPrice || stopPrice <= 0) missing.push("Stop Price");
     if (missing.length && missing.length < 4) {
-      out += `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);font-size:10px;color:var(--muted)">`;
+      out += `<div style="font-size:10px;color:var(--muted)">`;
       out += `<b>POSITION SIZING:</b> fill ${missing.join(", ")} to compute concrete size + leverage.`;
       out += `</div>`;
     }
   }
 
-  out += `</div>`;
+  // 2026-05-04: 2-col layout close — right col, grid, then outer card.
+  out += `</div>`;  // close right col
+  out += `</div>`;  // close grid
+  out += `</div>`;  // close outer card
   return out;
 }
 
@@ -2491,7 +2500,10 @@ function render() {
         if (hasAny) {
           const stripBlocker = (s) => s ? s.replace(/⛔/g, '').trim() : s;
           const preDisplay = stripBlocker(pre);
-          html += `<div style="margin-top:6px;padding:0;font-size:11px;line-height:1.5">`;
+          // 2026-05-04: 2-column layout per user — Path Transition (left) | Mom/Fund derived verdicts (right)
+          html += `<div style="margin-top:6px;display:grid;grid-template-columns:1fr 1fr;gap:20px;font-size:11px;line-height:1.5">`;
+          // Left column: Path Transition / Pre-Market State
+          html += `<div>`;
           if (path) {
             html += `<div><b>Path Transition:</b> ${path.category}</div>`;
             html += `<div style="color:var(--muted);font-size:10px;margin-top:2px">Predecessor: ${preDisplay || '—'} → Current: ${ms || '—'}</div>`;
@@ -2499,15 +2511,16 @@ function render() {
           } else if (pre) {
             html += `<div><b>Pre-Market State:</b> ${preDisplay}</div>`;
             html += `<div style="color:var(--muted);font-size:10px;margin-top:2px">Fill Now Price + OI to compute Path Transition.</div>`;
+          } else {
+            html += `<span style="color:var(--muted);font-size:10px">(no path data)</span>`;
           }
-          // Derived verdicts: Mom (OI 15m) + Fund (Funding regime). Inline row for compactness.
-          if (oi15 || fv) {
-            const sep = (path || pre) ? `margin-top:6px;padding-top:6px;border-top:1px solid var(--border);` : "";
-            html += `<div style="display:flex;flex-wrap:wrap;gap:14px;${sep}font-size:11px">`;
-            if (oi15) html += `<span><b style="color:var(--muted)">Mom:</b> <span style="color:${oi15Color};font-weight:600">${oi15}</span></span>`;
-            if (fv)   html += `<span><b style="color:var(--muted)">Fund:</b> <span style="color:${fvColor};font-weight:600">${fv}</span></span>`;
-            html += `</div>`;
-          }
+          html += `</div>`;
+          // Right column: Mom + Fund (derived verdicts)
+          html += `<div>`;
+          if (oi15) html += `<div><b style="color:var(--muted)">Mom:</b> <span style="color:${oi15Color};font-weight:600">${oi15}</span></div>`;
+          if (fv)   html += `<div style="${oi15 ? 'margin-top:4px' : ''}"><b style="color:var(--muted)">Fund:</b> <span style="color:${fvColor};font-weight:600">${fv}</span></div>`;
+          if (!oi15 && !fv) html += `<span style="color:var(--muted);font-size:10px">(no derived verdicts)</span>`;
+          html += `</div>`;
           html += `</div>`;
         }
       }

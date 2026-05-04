@@ -158,7 +158,7 @@ const OPT_LABELS = {
   "Trend 3/3": "3/3",
   // Resolution options — timeframe stripped from button text (now shown в section label "Resolution 30-90m")
   "OI Stabilized 30-60m": "OI Stabilized",
-  "No Resolution 60-90m⛔": "No Resolution⛔",
+  "No Resolution 60-90m⛔": "No Res.⛔",
   // 2026-04-29: "Price Hold" misread as "price stays flat" — actual semantic = direction confirmed
   "New OI Build & Price Hold": "OI Build + Direction Conf",
   // 2026-05-04: Display-only relabels per user — state values + internal logic remain unchanged.
@@ -2627,7 +2627,26 @@ function render() {
       html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px">`;
       html += renderBlock("PRE MOMENT", "last few hours",    [{id:"pricedir",label:"Price:"},  {id:"oidir",label:"OI:"}]);
       html += renderBlock("MOMENT",     "up to last hour",   [{id:"oi15_price",label:"Price:"},{id:"oi15_oi",label:"OI:"}]);
-      html += `<div></div>`;
+      // 2026-05-04: Resolution moved into 6th grid cell (was full-width row below) — saves vertical space.
+      // Cell stays empty when no squeeze active; appears as 3rd card in row when squeeze needs resolution.
+      const _ms_pre = computeMarketState();
+      const _isSqueeze_pre = _ms_pre && (_ms_pre === "L.Squeeze⛔" || _ms_pre === "S.Squeeze⛔");
+      if (_isSqueeze_pre) {
+        const sqzOptsGrid = ["OI Stabilized 30-60m","HTF Sweep","New OI Build & Price Hold","No Resolution 60-90m⛔"];
+        let resBlock = `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(139,92,246,0.02)">`;
+        resBlock += `<div style="font-size:10px;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">RESOLUTION<span style="color:var(--muted);font-weight:400;margin-left:4px;font-style:italic;font-size:9px;letter-spacing:0.02em">· 30-90m</span></div>`;
+        resBlock += `<div class="pills" style="flex-wrap:wrap;gap:3px">`;
+        for (const o of sqzOptsGrid) {
+          const sel = state.sqzresol === o;
+          const isStop = o.includes("⛔");
+          const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
+          resBlock += `<button class="${cls}" style="padding:2px 6px;font-size:11px" onclick="pick('sqzresol','${o.replace(/'/g,"\\'")}')">${optLabel(o)}</button>`;
+        }
+        resBlock += `</div></div>`;
+        html += resBlock;
+      } else {
+        html += `<div></div>`;
+      }
       html += `</div>`;
     } else {
     for (const f of g.fields) {
@@ -2752,7 +2771,8 @@ function render() {
       // (via buildDynamicsStatusInline). Below: squeeze resolution + cross-suggest banner +
       // verdict strip + verbose path block (preserved from old market/oi/funding sections).
 
-      // Squeeze Resolution sub-pills (when current state is squeeze) — preserved from old market section
+      // 2026-05-04: Resolution row moved into 6th grid cell above (when squeeze active).
+      // Variables kept for downstream computations (cross-suggest banner, market state badge, etc).
       const ms = computeMarketState();
       const isSqueeze = ms && (ms === "L.Squeeze⛔" || ms === "S.Squeeze⛔");
       const msStop = ms && ms.includes("⛔");
@@ -2761,17 +2781,6 @@ function render() {
       const msColor = ms === "Bullish" ? "var(--green)" : ms === "Bearish" ? "var(--red)" : msStop ? "var(--red)" : "var(--muted)";
       let stateLabel = ms || "—";
       if (isSqueeze && sqzResolved) stateLabel = ms.replace("⛔","") + " → " + sqz;
-      if (isSqueeze) {
-        const sqzOpts = ["OI Stabilized 30-60m","HTF Sweep","New OI Build & Price Hold","No Resolution 60-90m⛔"];
-        html += `<div class="row"><span class="lbl">Resolution <span style="color:var(--muted);font-weight:400;font-size:10px">30-90m</span></span><div class="pills">`;
-        for (const o of sqzOpts) {
-          const sel = state.sqzresol === o;
-          const isStop = o.includes("⛔");
-          const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
-          html += `<button class="${cls}" onclick="pick('sqzresol','${o}')">${optLabel(o)}</button>`;
-        }
-        html += `</div></div>`;
-      }
 
       // O7.22 cross-suggest banner (preserved from old oi section)
       const s3sug = suggestSection3FromResolution();

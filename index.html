@@ -2661,6 +2661,10 @@ function render() {
       html += `</div>`;
       // Row 3: REVERSAL CONTEXT card (HTF Extreme + price input inline between pills)
       // 2026-05-04: Price input inserted INTO the pills row, right after the last selected pill (per user — visible in flow).
+      // O7.43 (2026-05-05): Section hidden when Recently Swept = empty. Conceptually: Near HTF Extreme = "цена
+      // digesting near HTF level we just swept". Without recent sweep, no extreme to "be near" — section becomes noise.
+      // Existing state.extreme preserved silently if user toggles Recently Swept back.
+      if (state.recently_swept) {
       const extremeSelected = Array.isArray(state.extreme) ? state.extreme : (state.extreme ? [state.extreme] : []);
       const extremeAnySelected = extremeSelected.length > 0;
       const extremeF = fmap.extreme;
@@ -2705,6 +2709,7 @@ function render() {
       }
       extInner += `</div>`;
       html += `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${extInner}</div>`;
+      } // end if (state.recently_swept)
       // Row 4: TARGETS card (Liq Above + Liq Below)
       let targetsInner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">`;
       // 2026-05-04: 12 opts × 4 cols = 3 rows (was 3 cols × 4 rows) per user — more compact vertically.
@@ -2960,6 +2965,15 @@ function render() {
       const mode = computeMode();
       const mColor = mode === "Continuation" ? "var(--green)" : mode === "Reversal" ? "var(--red)" : mode === "No Trade" ? "var(--red)" : "var(--muted)";
       const riskPctSuggested = convLabel === "High" ? "2%" : convLabel === "Standard" ? "1%" : convLabel === "Low" ? "0.5%" : "—";
+      // O7.42 (2026-05-05): Auto-fill Risk % from Conviction suggestion when Risk empty
+      // AND user hasn't manually interacted with Risk this setup. tc_risk_interacted flag set
+      // in saveInput on first edit; cleared on RESET. Stops re-fill if user explicitly cleared.
+      // Writes to localStorage BEFORE input restore loop (line ~3070) which then populates input.
+      if (!localStorage.getItem('tc_risk') && localStorage.getItem('tc_risk_interacted') !== '1') {
+        const _autoMap = {High: "2", Standard: "1", Low: "0.5"};
+        const _autoVal = _autoMap[convLabel];
+        if (_autoVal) localStorage.setItem('tc_risk', _autoVal);
+      }
       // Entry style from Logic
       const dispOK = state.disp === "Pass✅";
       const oiGrowth = computeOI15M() === "Confirms✅";
@@ -2985,7 +2999,7 @@ function render() {
       // Tooltips
       const holdIntentTooltip = "<strong>Hold Intent — trader commitment</strong>\nКак долго ты готов держать сделку. Это <em>твоё решение</em>, не выведенное из геометрии.\n\n<strong>Intraday:</strong> hours, same session entry/exit. Active ATR = ATR(14) @ 1H для distance interpretations.\n\n<strong>Swing:</strong> 2-7 days, multi-session hold. Active ATR = ATR(14) @ 1D.\n\n<strong>Why separate from geometric question:</strong>\nDISTANCES panel показывает per-target horizon classification — TP1 может быть Intraday-reachable, TP2 — Swing-only. Single Hold Intent value не captures это, и не должно.\n\n<strong>Optional:</strong> для Wait Mode setups можно не выбирать.";
       const corrCheckTooltip = "<strong>Correlation check — BTC/ETH/SOL</strong>\nMax 1 concurrent trade across BTC/ETH/SOL.\n\n<strong>No open trades:</strong> clean — proceed.\n<strong>Conflict ⛔:</strong> existing concurrent BTC/ETH/SOL trade — STOP.\n\nApplies только к BTC/ETH/SOL group. Other alts — separate.";
-      const waitTooltipShort = "<strong>Wait Mode — discipline marker</strong>\n\"Setup структурно valid, но я НЕ entry yet — фиксирую почему.\"\n\n<strong>post-sweep:</strong> sweep случился, цена ушла далеко от swept extreme. Wait для re-test или fresh BOS.\n<strong>target far:</strong> target слишком далеко (DISTANCES panel HORIZON = OutOfRange). Wait для closer entry zone.\n<strong>inside barrier:</strong> цена внутри barrier zone. Wait для break direction.\n<strong>htf ready:</strong> HTF полностью готов, 15M trigger ещё не fired. Catch-all для discipline.\n\nClick selected pill again to clear.";
+      const waitTooltipShort = "<strong>Wait Mode — discipline marker</strong>\n\"Setup структурно valid, но я НЕ entry yet — фиксирую почему.\"\n\n<strong>post-sweep:</strong> sweep случился, цена ушла далеко от swept extreme. Wait для re-test или fresh BOS.\n<strong>target far:</strong> target слишком далеко (DISTANCES panel HORIZON = OutOfRange). Wait для closer entry zone.\n<strong>inside barrier:</strong> цена внутри barrier zone. Wait для break direction.\n<strong>htf pending:</strong> HTF полностью готов, 15M trigger ещё не fired. Catch-all для discipline.\n\nClick selected pill again to clear.";
 
       // Pills state
       const hiCurrent = state.trade_horizon || "";
@@ -3031,7 +3045,7 @@ function render() {
       html += `<button class="${wsPostCls}"    onclick="pick('wait_sub_type','post_sweep_digestion')">post-sweep</button>`;
       html += `<button class="${wsTargetCls}"  onclick="pick('wait_sub_type','target_premature')">target far</button>`;
       html += `<button class="${wsBarrierCls}" onclick="pick('wait_sub_type','inside_barrier')">inside barrier</button>`;
-      html += `<button class="${wsHtfCls}"     onclick="pick('wait_sub_type','htf_pending')">htf ready</button>`;
+      html += `<button class="${wsHtfCls}"     onclick="pick('wait_sub_type','htf_pending')">htf pending</button>`;
       if (wsCurrent) {
         html += `<span style="font-size:10px;color:var(--yellow,#ca8a04);font-weight:600;margin-left:4px">⚠ Wait active</span>`;
       }
@@ -3361,6 +3375,9 @@ function togglePost() {
 function saveInput(el) {
   const k = el.id.replace('inp_','');
   localStorage.setItem('tc_'+k, el.value);
+  // O7.42 (2026-05-05): Track Risk field interaction so auto-fill (in render) won't overwrite
+  // user's manual edit или explicit clear. Cleared on RESET.
+  if (k === 'risk') localStorage.setItem('tc_risk_interacted', '1');
   // 2026-05-04: Trigger re-render so dependent computations (Position Sizing in Deal Details,
   // DISTANCES table when ATR changes, etc.) refresh live. Focus preservation handled in render().
   render();
@@ -3472,7 +3489,12 @@ function restoreTimer() {
 
 function resetAll() {
   state = {}; dispState = {d_body:false,d_wick:false,d_range:false,d_vol:false,d_break:false};
-  ['state','disp','risk','entry','stop','tp1','tp2','rr','notes','screenshot','account','disp_body','disp_wick','disp_atr','disp_vol'].forEach(k => localStorage.removeItem('tc_'+k));
+  // O7.41 (2026-05-05): Comprehensive clear of all setup-specific localStorage.
+  // Added: details_htf_open / details_dynamics_open / details_deal_open (Details panel state per section)
+  //        risk_interacted (auto-fill Risk marker — see render() block).
+  // Excluded: tc_atr_1h_<asset>, tc_atr_d_<asset> (per-asset, intentionally persist between setups);
+  //           tc_worker / tc_token / tc_show_suggestions (settings, not setup state).
+  ['state','disp','risk','entry','stop','tp1','tp2','rr','notes','screenshot','account','disp_body','disp_wick','disp_atr','disp_vol','details_htf_open','details_dynamics_open','details_deal_open','risk_interacted'].forEach(k => localStorage.removeItem('tc_'+k));
   localStorage.removeItem('tc_state');
   // B8 fix (2026-05-01): clear sessionStorage H9.1 price fields too.
   // Without this, F5 после RESET reloaded stale prices от previous setup via loadAllPrices() on init.

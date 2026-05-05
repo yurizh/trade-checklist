@@ -185,7 +185,7 @@ const GROUPS = [
       {id:"daily_bias",label:"Daily Bias",opts:["Bullish","Bearish","Balanced"]},
       {id:"regime",label:"Regime",opts:["Trend 3/3 Bull","Trend 3/3 Bear","Mod 2/3 Bull","Mod 2/3 Bear"]},
       {id:"liq_draw",label:"Target Liq.",opts:["Above","Below","Both"]},
-      {id:"swept",label:"Recently Swept",opts:["Above","Below","Both"],optional:true},
+      {id:"swept",label:"Recently Swept",opts:["Above","Below"],optional:true},
       {id:"killzone",label:"Session",opts:["Asia","London","NY"],optional:true},
       {id:"range_type",label:"Range Position",opts:["Breakout","Sweep","Mid-Range"]},
       {id:"range_dir",label:"Direction",opts:["Above","Below"]},
@@ -304,8 +304,10 @@ function distanceInAtr(price1, price2) {
 // H9.1 (2026-04-29): Setup Geometry — price field helpers
 // H8.2 (2026-04-29): extended for tiered targets — target_above_2 / target_below_2 added
 // H8.3 (2026-04-29): extended for multi-barrier support — barrier_above_2 / barrier_below_2 added
-// 10 fields total (current, TP1+TP2 above/below, B1+B2 barrier above/below, near extreme).
-// Persistence: sessionStorage (ephemeral, survives F5 but cleared on tab close + asset change).
+// O7.46 (2026-05-05): C2 refactor — split single near_extreme into extreme_above + extreme_below.
+// State now: state.extreme_above (string|undefined), state.extreme_below (string|undefined),
+//            state.price_extreme_above (number), state.price_extreme_below (number).
+// 11 fields total. Persistence: sessionStorage (ephemeral, survives F5 but cleared on tab close + asset change).
 // Per-asset: prices change with asset — clear all on asset switch (kept simple).
 const H9_PRICE_FIELDS = [
   "current",
@@ -313,7 +315,7 @@ const H9_PRICE_FIELDS = [
   "target_below", "target_below_2",
   "barrier_above", "barrier_above_2",
   "barrier_below", "barrier_below_2",
-  "near_extreme"
+  "extreme_above", "extreme_below"
 ];
 function loadAllPrices() {
   // Load all 6 prices from sessionStorage (called on init + after asset change clear)
@@ -350,6 +352,22 @@ function setPrice(field, value) {
     if (!isNaN(parsed)) sessionStorage.setItem("tc_" + key, String(parsed));
   }
   render();
+}
+
+// O7.46 (2026-05-05): C2 helper — derives array form from split state for backwards compat.
+// Used by Notion mapping (multi_select column) and reversal checks.
+function getExtremeArray() {
+  return [state.extreme_above, state.extreme_below].filter(Boolean);
+}
+
+// O7.46 (2026-05-05): One-time cleanup of orphaned C1 fields (state.extreme array, price_near_extreme*).
+// Safe no-op if user already on C2. Called once on init.
+function migrateExtremeFieldsC2() {
+  if (Array.isArray(state.extreme)) delete state.extreme;
+  if ("price_near_extreme" in state) delete state.price_near_extreme;
+  if ("price_near_extreme_2" in state) delete state.price_near_extreme_2;
+  sessionStorage.removeItem("tc_price_near_extreme");
+  sessionStorage.removeItem("tc_price_near_extreme_2");
 }
 
 // H9.1: Distance from current price to a named target/barrier price field, in active ATR units
@@ -413,19 +431,25 @@ function shouldSuggestTargetPremature() {
 
 // H9.1: Auto-action — should suggest Wait Mode = post_sweep_digestion?
 // Fires when extreme price set + Recently Swept matches + distance > digestion threshold
+// O7.46 (2026-05-05): C2 — checks per-side. If Both swept, returns earliest (worst) breach.
 function shouldSuggestPostSweepDigestion() {
   const m = activeMultipliers();
   if (!m) return null;
   if (!state.swept) return null;
-  const check = priceDistanceCheck("near_extreme");
-  if (!check.valid) return null;
-  if (check.ratio > m.digestion) {
-    return {
-      ratio: check.ratio.toFixed(2),
-      threshold: m.digestion,
-      atrLabel: check.atrLabel,
-      sweptSide: state.swept
-    };
+  const sidesToCheck = [];
+  if (state.swept === "Above" || state.swept === "Both") sidesToCheck.push("above");
+  if (state.swept === "Below" || state.swept === "Both") sidesToCheck.push("below");
+  for (const side of sidesToCheck) {
+    const check = priceDistanceCheck("extreme_" + side);
+    if (!check.valid) continue;
+    if (check.ratio > m.digestion) {
+      return {
+        ratio: check.ratio.toFixed(2),
+        threshold: m.digestion,
+        atrLabel: check.atrLabel,
+        sweptSide: side === "above" ? "Above" : "Below"
+      };
+    }
   }
   return null;
 }
@@ -714,9 +738,10 @@ function renderDistancesPanel() {
   addRow("B2↑", "price_barrier_above_2");
   addRow("B1↓", "price_barrier_below");
   addRow("B2↓", "price_barrier_below_2");
-  // Stop + extreme
+  // Stop + extreme (per side, C2)
   addRow("Stop", "price_stop");
-  addRow("Extreme", "price_near_extreme");
+  addRow("Extreme↑", "price_extreme_above");
+  addRow("Extreme↓", "price_extreme_below");
 
   // If nothing filled OR no entry price, show placeholder
   if (entry === undefined || entry === null || entry === "") {
@@ -790,7 +815,8 @@ function renderGeometryAnalysis() {
                       state.price_target_above_2 !== undefined ||
                       state.price_target_below !== undefined || state.price_target_below_2 !== undefined ||
                       state.price_barrier_above !== undefined ||
-                      state.price_barrier_below !== undefined || state.price_near_extreme !== undefined;
+                      state.price_barrier_below !== undefined ||
+                      state.price_extreme_above !== undefined || state.price_extreme_below !== undefined;
   if (!anyPriceSet) return "";
 
   let out = `<div style="margin-top:6px;padding:8px 10px;background:rgba(107,114,128,0.04);border:1px solid var(--border);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6">`;
@@ -894,16 +920,26 @@ function renderGeometryAnalysis() {
     out += renderBarriersForSide("above");
     out += renderBarriersForSide("below");
 
-    if (state.price_near_extreme !== undefined) {
-      const c = priceDistanceCheck("near_extreme");
-      if (c.valid) {
-        const m = activeMultipliers();
-        let badge = "";
-        let badgeColor = "var(--muted)";
-        if (state.swept && c.ratio > m.digestion) { badge = " ⚠ post-sweep digestion candidate"; badgeColor = "var(--yellow, #ca8a04)"; }
-        out += `<span style="color:var(--muted)">  ·</span> Extreme @ ${state.price_near_extreme}: ${c.ratio.toFixed(2)}× ${c.atrLabel}<span style="color:${badgeColor}">${badge}</span><br>`;
+    // O7.46 (2026-05-05): C2 — render per-side extreme distance when price set.
+    // Digestion warning shows only if side matches state.swept (Above/Below/Both).
+    ["above", "below"].forEach(side => {
+      const priceKey = "price_extreme_" + side;
+      if (state[priceKey] === undefined) return;
+      const c = priceDistanceCheck("extreme_" + side);
+      if (!c.valid) return;
+      const m = activeMultipliers();
+      let badge = "";
+      let badgeColor = "var(--muted)";
+      const sideMatchesSwept = state.swept === "Both" ||
+        (side === "above" && state.swept === "Above") ||
+        (side === "below" && state.swept === "Below");
+      if (sideMatchesSwept && c.ratio > m.digestion) {
+        badge = " ⚠ post-sweep digestion candidate";
+        badgeColor = "var(--yellow, #ca8a04)";
       }
-    }
+      const sideArrow = side === "above" ? "↑" : "↓";
+      out += `<span style="color:var(--muted)">  ·</span> Extreme${sideArrow} @ ${state[priceKey]}: ${c.ratio.toFixed(2)}× ${c.atrLabel}<span style="color:${badgeColor}">${badge}</span><br>`;
+    });
   }
   out += `</div>`;
   // Auto-suggest banners (gated behind areSuggestionsOn() — default OFF)
@@ -2397,7 +2433,7 @@ function render() {
   const hasOIStop = oi15 && oi15.includes("⛔");
   // Reversal without HTF Extreme = blocker (covers all reversal triggers: Neutral, Swept, Bias conflict)
   const currentMode = computeMode();
-  const hasReversalNoExtreme = currentMode === "Reversal" && (!Array.isArray(state.extreme) || !state.extreme.length);
+  const hasReversalNoExtreme = currentMode === "Reversal" && getExtremeArray().length === 0;
   const hasStop = hasManualStop || hasComputedStop || hasOIStop || hasReversalNoExtreme;
   
   for (let i = 0; i < GROUPS.length; i++) {
@@ -2603,12 +2639,27 @@ function render() {
         // Visual: HTF FVG gray (low warning), strong barriers red (warning — could block trade).
         const isBarrier = (f.id === "barrier_above" || f.id === "barrier_below");
         const barrierColor = (opt) => opt === "HTF FVG" ? "#9ca3af" : (opt === "OB" || opt === "Wick SNR" || opt === "Round Number") ? "#f87171" : null;
+        // O7.45 (2026-05-05): Recently Swept (id=swept) — special multi-toggle.
+        // Pill is selected if state.swept matches the option OR state.swept === "Both".
+        // Click routes through pickSwept (no field id arg — works on state.swept directly).
+        const isSwept = (f.id === "swept");
         for (const o of f.opts) {
-          const sel = f.multi ? (Array.isArray(state[f.id]) && state[f.id].includes(o)) : state[f.id] === o;
+          let sel;
+          if (isSwept) {
+            sel = (state.swept === o) || (state.swept === "Both");
+          } else {
+            sel = f.multi ? (Array.isArray(state[f.id]) && state[f.id].includes(o)) : state[f.id] === o;
+          }
           const isStop = STOP.has(o);
           const cls = sel ? (isStop ? 'pill sel-stop' : 'pill sel') : 'pill';
           const disabledAttr = disabled ? " disabled" : "";
-          const clickFn = f.multi ? "pickMulti" : "pick";
+          let clickHandler;
+          if (isSwept) {
+            clickHandler = `pickSwept('${o.replace(/'/g,"\\'")}')`;
+          } else {
+            const clickFn = f.multi ? "pickMulti" : "pick";
+            clickHandler = `${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')`;
+          }
           let extraStyle = "";
           if (isDrawLevel) {
             const tc = tierColor(drawLevelStrength(o));
@@ -2617,7 +2668,7 @@ function render() {
             const bc = barrierColor(o);
             if (bc) extraStyle = ` style="box-shadow:inset 3px 0 0 ${bc};padding-left:11px"`;
           }
-          out += `<button class="${cls}"${disabledAttr}${extraStyle} onclick="${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')">${optLabel(o)}</button>`;
+          out += `<button class="${cls}"${disabledAttr}${extraStyle} onclick="${clickHandler}">${optLabel(o)}</button>`;
         }
         out += `</div></div>`;
         return out;
@@ -2663,54 +2714,70 @@ function render() {
       // 2026-05-04: Price input inserted INTO the pills row, right after the last selected pill (per user — visible in flow).
       // O7.43 (2026-05-05): Section hidden when Recently Swept = empty. Conceptually: Near HTF Extreme = "цена
       // digesting near HTF level we just swept". Without recent sweep, no extreme to "be near" — section becomes noise.
-      // Existing state.extreme preserved silently if user toggles Recently Swept back.
-      if (state.recently_swept) {
-      const extremeSelected = Array.isArray(state.extreme) ? state.extreme : (state.extreme ? [state.extreme] : []);
-      const extremeAnySelected = extremeSelected.length > 0;
+      // O7.46 (2026-05-05): C2 refactor — split into per-side selectors (extreme_above / extreme_below).
+      // Each active side renders own pill row + own price input. No filtering of options (user picks any of 10 per side).
+      if (state.swept) {
       const extremeF = fmap.extreme;
-      const extremeTooltipText = "<strong>Near HTF Extreme — reversal-qualifier</strong>\nВ КАКОЙ HTF reversal-зоне цена СЕЙЧАС.\n\n<strong>Major:</strong> HTF Swing / PMH / PML / PWH / PWL\n<strong>Medium:</strong> PDH / PDL / EQH / EQL / MO\n\nMulti-select. Click pill повторно — снять.";
-      // Find last-selected option in render order (= last index in f.opts that is in selected set)
-      let lastSelectedIdx = -1;
-      for (let i = 0; i < extremeF.opts.length; i++) {
-        if (extremeSelected.includes(extremeF.opts[i])) lastSelectedIdx = i;
-      }
-      // Compute strength label for inline computed display
+      const showAbove = state.swept === "Above" || state.swept === "Both";
+      const showBelow = state.swept === "Below" || state.swept === "Both";
+      const extremeTooltipText = "<strong>Near HTF Extreme — reversal-qualifier</strong>\nВ КАКОЙ HTF reversal-зоне цена СЕЙЧАС.\n\n<strong>Major:</strong> HTF Swing / PMH / PML / PWH / PWL\n<strong>Medium:</strong> PDH / PDL / EQH / EQL / MO\n\n<strong>C2:</strong> Single-select per side (Above / Below). Click pill повторно — снять.";
+      const extremePriceTooltipShort = "<strong>Near Extreme Price (H9.1)</strong>\nPrice level swept extreme (PWH, PMH, etc.) — для post-sweep digestion check.\n\n<strong>Distance check:</strong>\nWhen distance from extreme > horizon's digestion threshold (Intraday: 2× ATR(1H); Swing: 1× ATR(D)) → auto-suggest Wait Mode = post_sweep_digestion.\n\nLeave empty if extreme distance не actionable.";
+      const extremeTierColor = (tier) => tier === "Major" ? "#4ade80" : tier === "Medium" ? "#ca8a04" : null;
+      // Combined strength label across both sides
+      const allSelected = getExtremeArray();
       let strengthDisplay = "";
-      if (extremeAnySelected) {
-        const strengths = extremeSelected.map(t => extremeStrength(t)).filter(Boolean);
+      if (allSelected.length) {
+        const strengths = allSelected.map(t => extremeStrength(t)).filter(Boolean);
         if (strengths.length) {
           const best = strengths.includes("Major") ? "Major" : "Medium";
           const sColor = best === "Major" ? "var(--green)" : "var(--yellow, #ca8a04)";
-          strengthDisplay = ` <span style="font-size:10px;color:var(--muted);margin-left:8px;font-weight:400">${extremeSelected.join(", ")} → <span style="color:${sColor};font-weight:700">${best}</span></span>`;
+          strengthDisplay = ` <span style="font-size:10px;color:var(--muted);margin-left:8px;font-weight:400">${allSelected.join(", ")} → <span style="color:${sColor};font-weight:700">${best}</span></span>`;
         }
       }
-      let extInner = `<div class="row" style="margin-bottom:2px"><span class="lbl"><span class="tip">Near HTF Extreme ⓘ<span class="tip-box">${extremeTooltipText}</span></span>${strengthDisplay}</span></div>`;
-      extInner += `<div class="pills" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px">`;
-      // 2026-05-04: Tier accent stripe per option (Major=green, Medium=yellow). Only Major/Medium tiers exist for extreme.
-      const extremeTierColor = (tier) => tier === "Major" ? "#4ade80" : tier === "Medium" ? "#ca8a04" : null;
-      for (let i = 0; i < extremeF.opts.length; i++) {
-        const o = extremeF.opts[i];
-        const sel = extremeSelected.includes(o);
-        const cls = sel ? 'pill sel' : 'pill';
-        const tc = extremeTierColor(extremeStrength(o));
-        const stripeStyle = tc ? ` style="box-shadow:inset 3px 0 0 ${tc};padding-left:11px"` : '';
-        extInner += `<button class="${cls}"${stripeStyle} onclick="pickMulti('extreme','${o.replace(/'/g,"\\'")}')">${o}</button>`;
-        // Insert price input immediately after the last selected pill
-        if (i === lastSelectedIdx) {
-          const extremePriceVal = (state.price_near_extreme !== undefined && state.price_near_extreme !== null) ? state.price_near_extreme : "";
-          const extremePriceSet = state.price_near_extreme !== undefined && state.price_near_extreme !== null && state.price_near_extreme > 0;
-          const extremePriceTooltipShort = "<strong>Near Extreme Price (H9.1)</strong>\nPrice level swept extreme (PWH, PMH, etc.) — для post-sweep digestion check.\n\n<strong>Distance check:</strong>\nWhen Recently Swept set + distance from extreme > horizon's digestion threshold (Intraday: 2× ATR(1H); Swing: 1× ATR(D)) → auto-suggest Wait Mode = post_sweep_digestion.\n\nLeave empty if extreme distance не actionable.";
-          extInner += `<span style="display:inline-flex;align-items:center;gap:6px;margin:0 4px;padding:0 6px;border-left:2px solid var(--green);border-right:2px solid var(--green);background:rgba(34,197,94,0.05)">`;
-          extInner += `<span style="font-size:10px;color:var(--muted)"><span class="tip">Price ⓘ<span class="tip-box">${extremePriceTooltipShort}</span></span></span>`;
-          extInner += `<input type="text" inputmode="decimal" id="inp_price_near_extreme" class="mini-input" style="width:90px" placeholder="e.g. 79428" value="${extremePriceVal}" onchange="setPrice('near_extreme', this.value)" onblur="setPrice('near_extreme', this.value)">`;
-          extInner += `<span style="font-size:10px;color:${extremePriceSet ? 'var(--green)' : 'var(--muted)'};font-weight:600">${extremePriceSet ? '✓' : '·'}</span>`;
-          extInner += `</span>`;
+      // Renderer for one side row — generates pill row + inline price input for selected pill
+      const renderExtremeRow = (side) => {
+        const stateKey = "extreme_" + side;
+        const priceKey = "price_extreme_" + side;
+        const setPriceField = "extreme_" + side;
+        const inputId = "inp_price_extreme_" + side;
+        const cur = state[stateKey];
+        const sideArrow = side === "above" ? "↑" : "↓";
+        const sideColor = side === "above" ? "var(--green)" : "#ef4444";
+        const sideLabel = side === "above" ? "Above" : "Below";
+        let row = `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">`;
+        row += `<span style="font-size:10px;color:${sideColor};font-weight:700;min-width:60px">${sideArrow} ${sideLabel}</span>`;
+        row += `<div class="pills" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px;flex:1">`;
+        for (let i = 0; i < extremeF.opts.length; i++) {
+          const o = extremeF.opts[i];
+          const sel = (cur === o);
+          const cls = sel ? 'pill sel' : 'pill';
+          const tc = extremeTierColor(extremeStrength(o));
+          const stripeStyle = tc ? ` style="box-shadow:inset 3px 0 0 ${tc};padding-left:11px"` : '';
+          row += `<button class="${cls}"${stripeStyle} onclick="pickExtreme('${side}','${o.replace(/'/g,"\\'")}')">${o}</button>`;
+          if (sel) {
+            const priceVal = (state[priceKey] !== undefined && state[priceKey] !== null) ? state[priceKey] : "";
+            const priceSet = state[priceKey] !== undefined && state[priceKey] !== null && state[priceKey] > 0;
+            row += `<span style="display:inline-flex;align-items:center;gap:6px;margin:0 4px;padding:0 6px;border-left:2px solid var(--green);border-right:2px solid var(--green);background:rgba(34,197,94,0.05)">`;
+            row += `<span style="font-size:10px;color:var(--muted)"><span class="tip">Price ⓘ<span class="tip-box">${extremePriceTooltipShort}</span></span></span>`;
+            row += `<input type="text" inputmode="decimal" id="${inputId}" class="mini-input" style="width:90px" placeholder="e.g. 79428" value="${priceVal}" onchange="setPrice('${setPriceField}', this.value)" onblur="setPrice('${setPriceField}', this.value)">`;
+            row += `<span style="font-size:10px;color:${priceSet ? 'var(--green)' : 'var(--muted)'};font-weight:600">${priceSet ? '✓' : '·'}</span>`;
+            row += `</span>`;
+          }
         }
-      }
-      extInner += `</div>`;
+        row += `</div></div>`;
+        return row;
+      };
+      let extInner = `<div class="row" style="margin-bottom:4px"><span class="lbl"><span class="tip">Near HTF Extreme ⓘ<span class="tip-box">${extremeTooltipText}</span></span>${strengthDisplay}</span></div>`;
+      if (showAbove) extInner += renderExtremeRow("above");
+      if (showBelow) extInner += renderExtremeRow("below");
       html += `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${extInner}</div>`;
-      } // end if (state.recently_swept)
+      } // end if (state.swept)
       // Row 4: TARGETS card (Liq Above + Liq Below)
+      // O7.44 (2026-05-05): Liq + Barrier cards hidden when Target Liq (state.liq_draw) not selected.
+      // Без Target direction concepts of "Liq above target" / "Barrier in path" не имеют смысла.
+      // Previously: Liq cards greyed out (disable logic), Barrier cards always visible — inconsistent UX.
+      // Now: BOTH hidden until Target selected. Existing state.draw_level_*/barrier_* preserved silently.
+      if (state.liq_draw) {
       let targetsInner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">`;
       // 2026-05-04: 12 opts × 4 cols = 3 rows (was 3 cols × 4 rows) per user — more compact vertically.
       targetsInner += renderField(fmap.draw_level_above, 4);
@@ -2724,6 +2791,7 @@ function render() {
       barriersInner += renderField(fmap.barrier_below, 4);
       barriersInner += `</div>`;
       html += `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${barriersInner}</div>`;
+      } // end if (state.liq_draw)
     } else if (g.key === "dynamics") {
       // O7.32 (2026-05-03): Compact 3-column grid for Market Dynamics horizon blocks.
       // Inline label+pills (no separate label row). Block cards in 3-col layout.
@@ -3180,6 +3248,68 @@ function pickMulti(id, val) {
   render();
 }
 
+// O7.45 (2026-05-05): Recently Swept multi-toggle. Above/Below pills behave independently;
+// "Both" is derived when both selected. State remains string ("Above"/"Below"/"Both"/undefined)
+// for backwards compat — all consumers (computePhase, computeMode, etc.) untouched.
+// Toggle table:
+//   undefined + click Above → "Above"
+//   "Above" + click Above   → undefined
+//   "Above" + click Below   → "Both"
+//   "Both" + click Above    → "Below" (Above unset, Below stays)
+//   "Both" + click Below    → "Above"
+function pickSwept(val) {
+  const cur = state.swept;
+  const aboveSel = cur === "Above" || cur === "Both";
+  const belowSel = cur === "Below" || cur === "Both";
+  const newAbove = val === "Above" ? !aboveSel : aboveSel;
+  const newBelow = val === "Below" ? !belowSel : belowSel;
+  let next;
+  if (newAbove && newBelow) next = "Both";
+  else if (newAbove) next = "Above";
+  else if (newBelow) next = "Below";
+  else next = undefined;
+  state.swept = next;
+  // O7.46 (2026-05-05): C2 — clear per-side extreme + price when side no longer marked.
+  // Both sides cleared when state.swept goes undefined.
+  const aboveActive = state.swept === "Above" || state.swept === "Both";
+  const belowActive = state.swept === "Below" || state.swept === "Both";
+  if (!aboveActive) {
+    state.extreme_above = undefined;
+    state.price_extreme_above = undefined;
+    sessionStorage.removeItem("tc_price_extreme_above");
+  }
+  if (!belowActive) {
+    state.extreme_below = undefined;
+    state.price_extreme_below = undefined;
+    sessionStorage.removeItem("tc_price_extreme_below");
+  }
+  syncDisabledFields();
+  localStorage.setItem('tc_state', JSON.stringify(state));
+  render();
+}
+
+// O7.46 (2026-05-05): C2 — Near HTF Extreme single-select per side.
+// Each side (above/below) holds one option; click toggles. Click on different option replaces.
+// state.extreme_above / state.extreme_below = string|undefined
+// Prices: state.price_extreme_above / state.price_extreme_below (managed via setPrice).
+function pickExtreme(side, val) {
+  const stateKey = "extreme_" + side;
+  const priceKey = "price_extreme_" + side;
+  const cur = state[stateKey];
+  if (cur === val) {
+    // Toggle off — clear selection AND price for this side
+    state[stateKey] = undefined;
+    state[priceKey] = undefined;
+    sessionStorage.removeItem("tc_" + priceKey);
+  } else {
+    // Replace selection (single-select per side)
+    state[stateKey] = val;
+  }
+  syncDisabledFields();
+  localStorage.setItem('tc_state', JSON.stringify(state));
+  render();
+}
+
 function pickTop(id, val) {
   state[id] = state[id] === val ? undefined : val;
   // ATR per-asset auto-fill — when asset changes, load saved ATRs for new asset (H8.1: both 1H + D)
@@ -3630,7 +3760,9 @@ async function skipToNotion() {
   if (mdMovSk) props["Movement Axis"] = mdMovSk;
   const mdDrvSk = computeDriverAxis();
   if (mdDrvSk) props["Driver Axis"] = mdDrvSk;
-  if (Array.isArray(state.extreme) && state.extreme.length) props["Near HTF Extreme"] = state.extreme;
+  // O7.46 (2026-05-05): C2 — Near HTF Extreme = derived array from extreme_above + extreme_below
+  const extremeArrSk = getExtremeArray();
+  if (extremeArrSk.length) props["Near HTF Extreme"] = extremeArrSk;
   if (Array.isArray(state.barrier_above) && state.barrier_above.length) props["Barrier Above"] = state.barrier_above;
   if (Array.isArray(state.barrier_below) && state.barrier_below.length) props["Barrier Below"] = state.barrier_below;
   if (Array.isArray(state.draw_level_above) && state.draw_level_above.length) props["Liq. Above"] = state.draw_level_above;
@@ -3654,7 +3786,8 @@ async function skipToNotion() {
   if (state.price_barrier_above_2 !== undefined) props["Barrier Above 2 Price"] = state.price_barrier_above_2;
   if (state.price_barrier_below   !== undefined) props["Barrier Below Price"]  = state.price_barrier_below;
   if (state.price_barrier_below_2 !== undefined) props["Barrier Below 2 Price"] = state.price_barrier_below_2;
-  if (state.price_near_extreme   !== undefined) props["Near Extreme Price"] = state.price_near_extreme;
+  if (state.price_extreme_above !== undefined) props["Near Extreme Above Price"] = state.price_extreme_above;
+  if (state.price_extreme_below !== undefined) props["Near Extreme Below Price"] = state.price_extreme_below;
   let notes = document.getElementById("notes").value;
   // H1.25/H1.24 (2026-04-27): auto-append Wait Mode metadata if set (skip path)
   // H8.1 (2026-04-28): also append Trade Horizon + both ATR values
@@ -3677,7 +3810,8 @@ async function skipToNotion() {
   if (state.price_barrier_above_2 !== undefined) metaLinesSkip.push("Barrier Above 2 Price: " + state.price_barrier_above_2);
   if (state.price_barrier_below   !== undefined) metaLinesSkip.push("Barrier Below Price: "   + state.price_barrier_below);
   if (state.price_barrier_below_2 !== undefined) metaLinesSkip.push("Barrier Below 2 Price: " + state.price_barrier_below_2);
-  if (state.price_near_extreme    !== undefined) metaLinesSkip.push("Near Extreme Price: "    + state.price_near_extreme);
+  if (state.price_extreme_above  !== undefined) metaLinesSkip.push("Near Extreme Above Price: " + state.price_extreme_above);
+  if (state.price_extreme_below  !== undefined) metaLinesSkip.push("Near Extreme Below Price: " + state.price_extreme_below);
   if (metaLinesSkip.length) {
     notes = (notes ? notes + "\n\n" : "") + metaLinesSkip.join("\n");
   }
@@ -3764,7 +3898,9 @@ async function saveToNotion() {
   if (mdMov) props["Movement Axis"] = mdMov;
   const mdDrv = computeDriverAxis();
   if (mdDrv) props["Driver Axis"] = mdDrv;
-  if (Array.isArray(state.extreme) && state.extreme.length) props["Near HTF Extreme"] = state.extreme;
+  // O7.46 (2026-05-05): C2 — Near HTF Extreme = derived array from extreme_above + extreme_below
+  const extremeArr = getExtremeArray();
+  if (extremeArr.length) props["Near HTF Extreme"] = extremeArr;
   if (Array.isArray(state.barrier_above) && state.barrier_above.length) props["Barrier Above"] = state.barrier_above;
   if (Array.isArray(state.barrier_below) && state.barrier_below.length) props["Barrier Below"] = state.barrier_below;
   if (Array.isArray(state.draw_level_above) && state.draw_level_above.length) props["Liq. Above"] = state.draw_level_above;
@@ -3787,7 +3923,8 @@ async function saveToNotion() {
   if (state.price_barrier_above_2 !== undefined) props["Barrier Above 2 Price"] = state.price_barrier_above_2;
   if (state.price_barrier_below   !== undefined) props["Barrier Below Price"]   = state.price_barrier_below;
   if (state.price_barrier_below_2 !== undefined) props["Barrier Below 2 Price"] = state.price_barrier_below_2;
-  if (state.price_near_extreme    !== undefined) props["Near Extreme Price"]    = state.price_near_extreme;
+  if (state.price_extreme_above  !== undefined) props["Near Extreme Above Price"] = state.price_extreme_above;
+  if (state.price_extreme_below  !== undefined) props["Near Extreme Below Price"] = state.price_extreme_below;
 
   // Numbers
   // 2026-05-04: Dropped dead entries entry/stop/tp1/tp2 (inputs removed in Geometry refactor — values now flow via state.price_*).
@@ -3832,7 +3969,8 @@ async function saveToNotion() {
   if (state.price_barrier_above_2 !== undefined) metaLines.push("Barrier Above 2 Price: " + state.price_barrier_above_2);
   if (state.price_barrier_below   !== undefined) metaLines.push("Barrier Below Price: "   + state.price_barrier_below);
   if (state.price_barrier_below_2 !== undefined) metaLines.push("Barrier Below 2 Price: " + state.price_barrier_below_2);
-  if (state.price_near_extreme    !== undefined) metaLines.push("Near Extreme Price: "    + state.price_near_extreme);
+  if (state.price_extreme_above  !== undefined) metaLines.push("Near Extreme Above Price: " + state.price_extreme_above);
+  if (state.price_extreme_below  !== undefined) metaLines.push("Near Extreme Below Price: " + state.price_extreme_below);
   if (metaLines.length) {
     notes = (notes ? notes + "\n\n" : "") + metaLines.join("\n");
   }
@@ -3876,6 +4014,10 @@ if (state.asset) {
 // H9.1 (2026-04-29): Setup Geometry — load all 6 prices from sessionStorage on init
 // sessionStorage survives F5 but not tab close. If sessionStorage was cleared (new session) → all undefined.
 loadAllPrices();
+
+// O7.46 (2026-05-05): C2 migration — clean up any orphaned C1 fields (state.extreme array, price_near_extreme).
+// Safe no-op if no orphan data. Runs once per session.
+migrateExtremeFieldsC2();
 
 // O7.30 / O7.28 (2026-05-02 / updated 2026-05-03): Session auto-default by current UTC hour.
 // Windows: Asia 00-08 UTC, London 08-13 UTC, NY 13-21 UTC. 21-24 UTC = no session (field stays empty).

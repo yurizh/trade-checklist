@@ -184,7 +184,7 @@ const GROUPS = [
       {id:"weekly_bias",label:"Weekly Bias",opts:["Bullish","Bearish","Balanced"]},
       {id:"daily_bias",label:"Daily Bias",opts:["Bullish","Bearish","Balanced"]},
       {id:"regime",label:"Regime",opts:["Trend 3/3 Bull","Trend 3/3 Bear","Mod 2/3 Bull","Mod 2/3 Bear"]},
-      {id:"liq_draw",label:"Target Liq.",opts:["Above","Below","Both"]},
+      {id:"liq_draw",label:"Target Liq.",opts:["Above","Below"]},
       {id:"swept",label:"Recently Swept",opts:["Above","Below"],optional:true},
       {id:"killzone",label:"Session",opts:["Asia","London","NY"],optional:true},
       {id:"range_type",label:"Range Position",opts:["Breakout","Sweep","Mid-Range"]},
@@ -2662,7 +2662,7 @@ function render() {
       const tooltips = {
         weekly_bias: "<strong>Weekly Bias — primary structural direction</strong>\nLookback: <strong>8-12 weekly candles</strong> (~2-3 months).\n\nМетодика:\n• HH + HL → Bullish\n• LH + LL → Bearish\n• Mixed / sideways / no clear structure → Balanced\n\nAlt override (H1.21): highly correlated alts inherit BTC Weekly Bias. Independent reading только для non-correlated alts.\n\nDetermines trade Direction.",
         daily_bias: "<strong>Daily Bias — modifier for conviction</strong>\nLookback: <strong>10 daily candles</strong> (~2 weeks).\n\nМетодика:\n• HH + HL за 10 candles → Bullish\n• LH + LL за 10 candles → Bearish\n• Mixed / sideways / no clear structure → Balanced\n\n<strong>Strict rule (D6 2026-04-29):</strong> Bullish requires BOTH HH AND HL. Single criterion alone (HL only, или HH only) → Balanced. Bearish symmetric (BOTH LH AND LL). Borderline → default Balanced (conservative).\n\nAlt override (H1.21): highly correlated alts inherit BTC Daily Bias.\n\nIf differs from Weekly → conviction -1 (Weekly still wins direction).",
-        liq_draw: "<strong>Target Liq. — direction of target liquidity</strong>\nWhere market is pulled.\n• Above — upside target\n• Below — downside target\n• Both — balance state",
+        liq_draw: "<strong>Target Liq. — direction of target liquidity</strong>\nWhere market is pulled.\n\n<strong>Toggle behavior (2026-05-06):</strong>\nIndependent Above/Below pills (mirrors Recently Swept).\n• Click Above — target upside\n• Click Below — target downside\n• Click both — \"Both\" (balance state, Weekly Balanced bias)\n• Click selected pill again — deselect\n\n<strong>Values:</strong>\n• Above — upside target\n• Below — downside target\n• Both — balance state (computed when both selected)",
         draw_level_above: "<strong>Liq. Above — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PMH, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)\n\n<strong>HTF Swing H = ATH (H1.29):</strong>\nИспользуй HTF Swing H для ATH (all-time high) тоже. Mark в Notes: \"ATH\" if relevant.\n\n<strong>Target distance check (H1.22, manual):</strong>\nЕсли target > 4× ATR(1H) от current price → setup is \"premature timing\". Используй ATR(1H) field вверху для расчёта.\nЕсли premature — flag через Wait Mode → target premature.\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Above. Одна FVG — одна роль.",
         draw_level_below: "<strong>Liq. Below — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PML, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)\n\n<strong>HTF Swing L = ATL (H1.29):</strong>\nИспользуй HTF Swing L для ATL (all-time low) тоже. Mark в Notes: \"ATL\" if relevant.\n\n<strong>Target distance check (H1.22, manual):</strong>\nЕсли target > 4× ATR(1H) от current price → setup is \"premature timing\". Используй ATR(1H) field вверху для расчёта.\nЕсли premature — flag через Wait Mode → target premature.\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Below. Одна FVG — одна роль.",
         swept: "<strong>Recently Swept — HTF liquidity grab</strong>\nLookback: <strong>5-10 trading days</strong>.\n\n<strong>⚠ Sweep vs Touch (D3 2026-04-29):</strong> Required: BODY close beyond level (not just wick touch). If only wick reached level + reversed → NOT swept (touch + reject). True sweep = orders cleared; touch = orders still sitting (continuation likely if bias supports).\n\n<strong>Что засчитывается:</strong>\n• Level type: PDL/PDH/PWL/PWH/PML/PMH/HTF Swing (major, НЕ Session H/L)\n• Sweep depth: <strong>body close beyond level</strong> (не просто wick)\n• Timeframe: Daily candle closed beyond level\n\n<strong>НЕ считается Recently Swept:</strong>\n• Intraday bounces от FVG D / session lows\n• Short wick без body close\n• Minor intraday reactions (→ запиши в Notes если важно)\n\n<strong>Impact:</strong>\n• Same direction as Target Liq. → Post-sweep (-1 conviction, exhaustion warning)\n• Both sides → Transition (NO TRADE blocker)\n• If sweep долго назад (>10 trading days) — leave empty",
@@ -2734,10 +2734,15 @@ function render() {
         // Pill is selected if state.swept matches the option OR state.swept === "Both".
         // Click routes through pickSwept (no field id arg — works on state.swept directly).
         const isSwept = (f.id === "swept");
+        // 2026-05-06: Target Liq. (id=liq_draw) — same multi-toggle pattern as Recently Swept.
+        // Pill selected if state.liq_draw matches OR state.liq_draw === "Both". Routes through pickLiqDraw.
+        const isLiqDraw = (f.id === "liq_draw");
         for (const o of f.opts) {
           let sel;
           if (isSwept) {
             sel = (state.swept === o) || (state.swept === "Both");
+          } else if (isLiqDraw) {
+            sel = (state.liq_draw === o) || (state.liq_draw === "Both");
           } else {
             sel = f.multi ? (Array.isArray(state[f.id]) && state[f.id].includes(o)) : state[f.id] === o;
           }
@@ -2747,6 +2752,8 @@ function render() {
           let clickHandler;
           if (isSwept) {
             clickHandler = `pickSwept('${o.replace(/'/g,"\\'")}')`;
+          } else if (isLiqDraw) {
+            clickHandler = `pickLiqDraw('${o.replace(/'/g,"\\'")}')`;
           } else {
             const clickFn = f.multi ? "pickMulti" : "pick";
             clickHandler = `${clickFn}('${f.id}','${o.replace(/'/g,"\\'")}')`;
@@ -2776,10 +2783,13 @@ function render() {
         return card;
       };
       // Row 1: BIAS card | LIQUIDITY INTENT card (2 cards side-by-side)
+      // 2026-05-06: Weekly/Daily Bias use gridCols=3 (force 3-pill horizontal row).
+      // Previous gridCols=0 (natural flow) wrapped to 2 rows on narrower viewports. Slot is wide enough for explicit 3-col grid
+      // since BIAS card has full 50% width with no Regime nested inside (unlike reverted Variant 3).
       html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">`;
       let biasInner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">`;
-      biasInner += renderField(fmap.weekly_bias, 0);
-      biasInner += renderField(fmap.daily_bias, 0);
+      biasInner += renderField(fmap.weekly_bias, 3);
+      biasInner += renderField(fmap.daily_bias, 3);
       biasInner += `</div>`;
       html += `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${biasInner}</div>`;
       let liqIntentInner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">`;
@@ -2789,6 +2799,9 @@ function render() {
       html += `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(59,130,246,0.02)">${liqIntentInner}</div>`;
       html += `</div>`;
       // Row 2 (split 2026-05-04 per user): Regime + Session/Range/Direction. Both as card frames without header (per user).
+      // 2026-05-06: Variant 3 reorg (merge Regime into Row 1) was tried and reverted — visually took MORE space because
+      // 1.7fr 1fr outer grid + Regime 2x2 layout produced taller cards than original 1fr 1fr + Regime-alone-Row 2 design.
+      // Original layout has lower visual weight. Kept.
       html += `<div style="display:grid;grid-template-columns:1fr 1.7fr;gap:8px;margin-bottom:6px">`;
       // Regime — card frame without header
       let regimeInner = renderField(fmap.regime, 4);
@@ -2990,7 +3003,7 @@ function render() {
       const tooltips = {
         weekly_bias: "<strong>Weekly Bias — primary structural direction</strong>\nLookback: <strong>8-12 weekly candles</strong> (~2-3 months).\n\nМетодика:\n• HH + HL → Bullish\n• LH + LL → Bearish\n• Mixed / sideways / no clear structure → Balanced\n\nAlt override (H1.21): highly correlated alts inherit BTC Weekly Bias. Independent reading только для non-correlated alts.\n\nDetermines trade Direction.",
         daily_bias: "<strong>Daily Bias — modifier for conviction</strong>\nLookback: <strong>10 daily candles</strong> (~2 weeks).\n\nМетодика:\n• HH + HL за 10 candles → Bullish\n• LH + LL за 10 candles → Bearish\n• Mixed / sideways / no clear structure → Balanced\n\n<strong>Strict rule (D6 2026-04-29):</strong> Bullish requires BOTH HH AND HL. Single criterion alone (HL only, или HH only) → Balanced. Bearish symmetric (BOTH LH AND LL). Borderline → default Balanced (conservative).\n\nAlt override (H1.21): highly correlated alts inherit BTC Daily Bias.\n\nIf differs from Weekly → conviction -1 (Weekly still wins direction).",
-        liq_draw: "<strong>Target Liq. — direction of target liquidity</strong>\nWhere market is pulled.\n• Above — upside target\n• Below — downside target\n• Both — balance state",
+        liq_draw: "<strong>Target Liq. — direction of target liquidity</strong>\nWhere market is pulled.\n\n<strong>Toggle behavior (2026-05-06):</strong>\nIndependent Above/Below pills (mirrors Recently Swept).\n• Click Above — target upside\n• Click Below — target downside\n• Click both — \"Both\" (balance state, Weekly Balanced bias)\n• Click selected pill again — deselect\n\n<strong>Values:</strong>\n• Above — upside target\n• Below — downside target\n• Both — balance state (computed when both selected)",
         draw_level_above: "<strong>Liq. Above — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing H, PMH, PWH, MO\n• <strong>Medium:</strong> PDH, WO, EQH, FVG 50%, Round Number\n• <strong>Minor:</strong> Session H, DO, FVG edge (conviction -1)\n\n<strong>HTF Swing H = ATH (H1.29):</strong>\nИспользуй HTF Swing H для ATH (all-time high) тоже. Mark в Notes: \"ATH\" if relevant.\n\n<strong>Target distance check (H1.22, manual):</strong>\nЕсли target > 4× ATR(1H) от current price → setup is \"premature timing\". Используй ATR(1H) field вверху для расчёта.\nЕсли premature — flag через Wait Mode → target premature.\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Above. Одна FVG — одна роль.",
         draw_level_below: "<strong>Liq. Below — target strength</strong>\nВыбери конкретный тип — strength рассчитывается автоматически.\n\n• <strong>Major:</strong> HTF Swing L, PML, PWL, MO\n• <strong>Medium:</strong> PDL, WO, EQL, FVG 50%, Round Number\n• <strong>Minor:</strong> Session L, DO, FVG edge (conviction -1)\n\n<strong>HTF Swing L = ATL (H1.29):</strong>\nИспользуй HTF Swing L для ATL (all-time low) тоже. Mark в Notes: \"ATL\" if relevant.\n\n<strong>Target distance check (H1.22, manual):</strong>\nЕсли target > 4× ATR(1H) от current price → setup is \"premature timing\". Используй ATR(1H) field вверху для расчёта.\nЕсли premature — flag через Wait Mode → target premature.\n\n<strong>FVG dual-role (O7.12):</strong>\nЕсли выбираешь FVG 50% / FVG edge здесь как target — НЕ дублируй ту же FVG зону в Barrier Below. Одна FVG — одна роль.",
         swept: "<strong>Recently Swept — HTF liquidity grab</strong>\nLookback: <strong>5-10 trading days</strong>.\n\n<strong>⚠ Sweep vs Touch (D3 2026-04-29):</strong> Required: BODY close beyond level (not just wick touch). If only wick reached level + reversed → NOT swept (touch + reject). True sweep = orders cleared; touch = orders still sitting (continuation likely if bias supports).\n\n<strong>Что засчитывается:</strong>\n• Level type: PDL/PDH/PWL/PWH/PML/PMH/HTF Swing (major, НЕ Session H/L)\n• Sweep depth: <strong>body close beyond level</strong> (не просто wick)\n• Timeframe: Daily candle closed beyond level\n\n<strong>НЕ считается Recently Swept:</strong>\n• Intraday bounces от FVG D / session lows\n• Short wick без body close\n• Minor intraday reactions (→ запиши в Notes если важно)\n\n<strong>Impact:</strong>\n• Same direction as Target Liq. → Post-sweep (-1 conviction, exhaustion warning)\n• Both sides → Transition (NO TRADE blocker)\n• If sweep долго назад (>10 trading days) — leave empty",
@@ -3374,6 +3387,30 @@ function pickSwept(val) {
     state.price_extreme_below = undefined;
     sessionStorage.removeItem("tc_price_extreme_below");
   }
+  syncDisabledFields();
+  localStorage.setItem('tc_state', JSON.stringify(state));
+  render();
+}
+
+// 2026-05-06: Target Liq. multi-toggle — UX consistency with Recently Swept (D-section process tweak).
+// User feedback: Recently Swept already supports independent Above/Below toggles with computed "Both".
+// Target Liq. needs same logic — independent toggles, "Both" derived when both selected.
+// Notion side: Target Liq. column stays SELECT(Above/Below/Both) — value computed and saved as before.
+// Downstream logic (Phase, EffectiveDir, Conviction, Verdict) unchanged — all read state.liq_draw values
+// "Above" / "Below" / "Both" / undefined which this function produces correctly.
+// Per-side draw_level/barrier arrays preserved on toggle (matches existing "hide silently" pattern, line 2870).
+function pickLiqDraw(val) {
+  const cur = state.liq_draw;
+  const aboveSel = cur === "Above" || cur === "Both";
+  const belowSel = cur === "Below" || cur === "Both";
+  const newAbove = val === "Above" ? !aboveSel : aboveSel;
+  const newBelow = val === "Below" ? !belowSel : belowSel;
+  let next;
+  if (newAbove && newBelow) next = "Both";
+  else if (newAbove) next = "Above";
+  else if (newBelow) next = "Below";
+  else next = undefined;
+  state.liq_draw = next;
   syncDisabledFields();
   localStorage.setItem('tc_state', JSON.stringify(state));
   render();

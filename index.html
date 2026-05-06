@@ -1698,6 +1698,47 @@ function computePhaseConfidence() {
   return "Standard";
 }
 
+// 2026-05-06: Inner Count helpers — derived display from raw Trigger TF + Bull/Bear counts.
+// Convention matches Pine v4: natural sub-TF = chart TF / 4 for intraday, mixed for daily+.
+function computeInnerTotal(tf) {
+  if (tf === '1h') return 4;  // 15m sub-bars
+  if (tf === '4h') return 4;  // 1h sub-bars
+  if (tf === 'D')  return 6;  // 4h sub-bars
+  if (tf === 'W')  return 7;  // D sub-bars
+  if (tf === 'M')  return 4;  // W sub-bars (~4)
+  return 0;
+}
+function computeInnerTier(bull, bear, tf) {
+  const total = computeInnerTotal(tf);
+  if (!total) return '';
+  const sum = (bull || 0) + (bear || 0);
+  if (sum === 0) return 'Drift';
+  if (sum === 1) return 'Spike';
+  if (sum >= total) return 'Extreme';
+  return 'Impulsive';
+}
+function computeInnerDirection(bull, bear) {
+  bull = bull || 0;
+  bear = bear || 0;
+  if (bull === 0 && bear === 0) return '';
+  if (bull > bear) return 'Bull-dominant';
+  if (bear > bull) return 'Bear-dominant';
+  return 'Mixed';
+}
+
+// 2026-05-06: Section data presence check — used to hide Details button when empty (avoid useless expand).
+// Currently htf only — extend to dynamics/deal if user reports same friction there.
+function hasHtfSectionData() {
+  return !!(state.weekly_bias || state.daily_bias || state.regime ||
+            state.liq_draw || state.swept || state.killzone ||
+            state.range_position ||
+            state.extreme_above || state.extreme_below ||
+            (Array.isArray(state.barrier_above)    && state.barrier_above.length) ||
+            (Array.isArray(state.barrier_below)    && state.barrier_below.length) ||
+            (Array.isArray(state.draw_level_above) && state.draw_level_above.length) ||
+            (Array.isArray(state.draw_level_below) && state.draw_level_below.length));
+}
+
 function computeMode() {
   const regime = state.regime;
   const phase = computeLiquidityPhase();
@@ -2507,6 +2548,54 @@ function render() {
       }
       html += `</div>`;
       html += `</div>`;
+      // 2026-05-06: Inner Count row — Trigger TF + sub-TF displacement counts (read from Pine table).
+      // Pine v4: shows "{TF} In: X▲ Y▼ (of N)" on supported scales (1h, 4h, D, W, M).
+      // Quality tier (Drift/Spike/Impulsive/Extreme) and Direction auto-computed from raw counts.
+      const triggerTfCurrent = state.trigger_tf || "";
+      const innerBullStr = localStorage.getItem("tc_inner_bull") || "";
+      const innerBearStr = localStorage.getItem("tc_inner_bear") || "";
+      const innerBullNum = parseInt(innerBullStr) || 0;
+      const innerBearNum = parseInt(innerBearStr) || 0;
+      const innerTotal = computeInnerTotal(triggerTfCurrent);
+      const innerTier = computeInnerTier(innerBullNum, innerBearNum, triggerTfCurrent);
+      const innerDir = computeInnerDirection(innerBullNum, innerBearNum);
+      html += `<div class="row" style="gap:14px;align-items:center;flex-wrap:wrap;margin-top:4px">`;
+      // Trigger TF pills
+      html += `<div style="display:flex;align-items:center;gap:4px">`;
+      html += `<span class="lbl"><span class="tip">Trig TF ⓘ<span class="tip-box"><strong>Trigger Timeframe</strong>\nWhich chart TF was the displacement that triggered analysis (read from Pine table label).\n\nPine table shows "{TF} In: X▲ Y▼ (of N)" — this {TF} is your Trigger TF.\n\nNatural sub-TF (auto-derived):\n• 1h → 15m (4 sub-bars)\n• 4h → 1h  (4 sub-bars)\n• D  → 4h  (6 sub-bars)\n• W  → D   (7 sub-bars)\n• M  → W   (~4 sub-bars)\n\nOn 15m chart Pine shows "scale not supported" — leave blank or use legacy Confluence field.</span></span></span>`;
+      for (const tf of ["1h", "4h", "D", "W", "M"]) {
+        const cls = triggerTfCurrent === tf ? "pill sel" : "pill";
+        html += `<button class="${cls}" onclick="pick('trigger_tf','${tf}')">${tf}</button>`;
+      }
+      html += `</div>`;
+      // Inner Bull/Bear number inputs
+      html += `<div style="display:flex;align-items:center;gap:6px">`;
+      html += `<span class="lbl"><span class="tip">Inner ⓘ<span class="tip-box"><strong>Inner Displacement Count</strong>\nRead from Pine tooltip (hover on displacement icon) or table Row 1.\n\n• <strong>▲</strong> — bullish sub-TF displacements within trigger bar\n• <strong>▼</strong> — bearish sub-TF displacements\n• Total = sub-bars closed so far (varies if forming bar)\n\nQuality Tier (auto-computed):\n• 0/N = Drift (no impulse — drift trend)\n• 1/N = Spike (single sub-bar carried move — caution)\n• 2-(N-1)/N = Impulsive (sustained pressure — clean)\n• N/N = Extreme (overshoot risk)\n\nDirection (auto): Bull/Bear/Mixed based on bull vs bear count.</span></span></span>`;
+      html += `<input class="mini-input w48" id="inp_inner_bull" placeholder="0" oninput="saveInput(this)">`;
+      html += `<span style="font-size:11px;color:var(--muted)">▲</span>`;
+      html += `<input class="mini-input w48" id="inp_inner_bear" placeholder="0" oninput="saveInput(this)">`;
+      html += `<span style="font-size:11px;color:var(--muted)">▼</span>`;
+      if (innerTotal > 0) {
+        html += `<span style="font-size:11px;color:var(--muted)">of ${innerTotal}</span>`;
+      }
+      html += `</div>`;
+      // Computed Tier + Direction display (inline, not stored)
+      if (innerTier || innerDir) {
+        const tierClr = innerTier === 'Impulsive' ? 'var(--green)' :
+                        innerTier === 'Extreme'   ? '#fbbf24' :
+                        innerTier === 'Spike'     ? '#fbbf24' :
+                        innerTier === 'Drift'     ? 'var(--muted)' : 'var(--muted)';
+        const dirClr  = innerDir.startsWith('Bull') ? 'var(--green)' :
+                        innerDir.startsWith('Bear') ? 'var(--red)' :
+                        'var(--muted)';
+        html += `<div style="display:flex;align-items:center;gap:6px;font-size:12px">`;
+        html += `<span style="color:var(--muted)">→</span>`;
+        if (innerTier) html += `<span style="color:${tierClr};font-weight:600">${innerTier}</span>`;
+        if (innerTier && innerDir) html += `<span style="color:var(--muted)">·</span>`;
+        if (innerDir) html += `<span style="color:${dirClr}">${innerDir}</span>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
       html += `</div>`;  // close SIGNAL card
     }
     // 2026-05-04: Geometry rendering (ATR + price fields + DISTANCES + Analysis) extracted to renderTradeGeometry().
@@ -2517,10 +2606,12 @@ function render() {
       html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}`;
       if (g.key === "htf") html += buildHTFStatusInline();
       if (g.key === "dynamics") html += buildDynamicsStatusInline();
-      html += renderDetailsButton(g.key);
+      // 2026-05-06: Hide Details button on empty htf section — empty panel was useless noise.
+      const showDetailsBtn = g.key === "htf" ? hasHtfSectionData() : true;
+      if (showDetailsBtn) html += renderDetailsButton(g.key);
       html += `</div>`;
       // 2026-05-04: Per-section Details — verbose breakdown renders right under title (above fields).
-      if (g.key === "htf" && isDetailsOn('htf')) {
+      if (g.key === "htf" && isDetailsOn('htf') && hasHtfSectionData()) {
         html += renderVerboseHTF();
       }
       if (g.key === "dynamics" && isDetailsOn('dynamics')) {
@@ -3624,7 +3715,7 @@ function resetAll() {
   //        risk_interacted (auto-fill Risk marker — see render() block).
   // Excluded: tc_atr_1h_<asset>, tc_atr_d_<asset> (per-asset, intentionally persist between setups);
   //           tc_worker / tc_token / tc_show_suggestions (settings, not setup state).
-  ['state','disp','risk','entry','stop','tp1','tp2','rr','notes','screenshot','account','disp_body','disp_wick','disp_atr','disp_vol','details_htf_open','details_dynamics_open','details_deal_open','risk_interacted'].forEach(k => localStorage.removeItem('tc_'+k));
+  ['state','disp','risk','entry','stop','tp1','tp2','rr','notes','screenshot','account','disp_body','disp_wick','disp_atr','disp_vol','inner_bull','inner_bear','details_htf_open','details_dynamics_open','details_deal_open','risk_interacted'].forEach(k => localStorage.removeItem('tc_'+k));
   localStorage.removeItem('tc_state');
   // B8 fix (2026-05-01): clear sessionStorage H9.1 price fields too.
   // Without this, F5 после RESET reloaded stale prices от previous setup via loadAllPrices() on init.
@@ -3688,6 +3779,8 @@ const FIELD_MAP = {
   confirm:["Confirmation",{Holds:"Continuation","Retest OK":"Acceptance","Not yet":"None"}],
   // 2026-05-04: Multi-TF Confluence — read from Pine table 1H/4H rows
   confluence:["Confluence",{None:"None","1H aligned":"1H aligned","1H+4H aligned":"1H+4H aligned"}],
+  // 2026-05-06: Trigger TF — chart TF where displacement triggered analysis (used with Inner Bull/Bear).
+  trigger_tf:["Trigger TF",{"1h":"1h","4h":"4h","D":"D","W":"W","M":"M"}],
   range_position:["Range Position",{"Breakout Above":"Breakout Above","Breakout Below":"Breakout Below","Sweep Above":"Sweep Above","Sweep Below":"Sweep Below","Mid-Range":"Mid-Range"}],
   killzone:["Session",{Asia:"Asia",London:"London",NY:"NY"}],
   pricedir:["",null],
@@ -3771,6 +3864,11 @@ async function skipToNotion() {
   const {label: convSave, triggers: trigSave} = computeConviction();
   if (convSave) props["Conviction"] = convSave + " (-" + trigSave + ")";
   const modeSave = computeMode(); if (modeSave) props["Trade Mode"] = modeSave;
+  // 2026-05-06: Inner displacement counts (sub-TF within Trigger TF bar) — also save on skip path for analysis
+  const skipInnerBull = localStorage.getItem("tc_inner_bull");
+  const skipInnerBear = localStorage.getItem("tc_inner_bear");
+  if (skipInnerBull && !isNaN(parseFloat(skipInnerBull))) props["Inner Bull"] = parseFloat(skipInnerBull);
+  if (skipInnerBear && !isNaN(parseFloat(skipInnerBear))) props["Inner Bear"] = parseFloat(skipInnerBear);
   // H8.1 (2026-04-28): Trade Horizon + ATR(14) @ 1H/1D as dedicated Notion fields (skip path)
   if (state.trade_horizon) props["Trade Horizon"] = state.trade_horizon;
   if (state.atr_1h && state.atr_1h > 0) props["ATR(14) @ 1H"] = state.atr_1h;
@@ -3935,7 +4033,10 @@ async function saveToNotion() {
     disp_body: "Disp Body %",
     disp_wick: "Disp Wick %",
     disp_atr:  "Disp ATR ×",
-    disp_vol:  "Disp Vol ×"
+    disp_vol:  "Disp Vol ×",
+    // 2026-05-06: Inner displacement counts (sub-TF within Trigger TF bar) for quality tier analysis
+    inner_bull: "Inner Bull",
+    inner_bear: "Inner Bear"
   };
   for (const [k, prop] of Object.entries(numMap)) {
     const v = localStorage.getItem("tc_"+k);

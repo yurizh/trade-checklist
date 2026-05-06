@@ -2493,7 +2493,7 @@ function render() {
       html += `<div class="group-title" style="color:${g.color}">${g.title} ${statusIcon}${buildDealStatusInline()}${renderDetailsButton('deal')}</div>`;
       // 2026-05-04: Per-section Details — Geometry Analysis renders right under title when expanded.
       if (isDetailsOn('deal')) html += renderGeometryAnalysis();
-      // 2026-05-04: SIGNAL card — Trigger/Confirm/Disp/Actuals/Confluence wrapped in frame card (matches HTF/Dynamics style).
+      // 2026-05-04: SIGNAL card — Trigger/Confirm/Disp/Actuals/HTF Confluence wrapped in frame card (matches HTF/Dynamics style).
       const trigCurrent = state.trigger || "";
       const conCurrent = state.confirm || "";
       html += `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(239,68,68,0.02);margin-top:6px">`;
@@ -2528,7 +2528,7 @@ function render() {
       }
       html += `</div></div>`;
       html += `</div>`;
-      // 2026-05-04: Actuals + Confluence row (Variant B logging — actual measured values from Pine table)
+      // 2026-05-04: Actuals + HTF Confluence row (Variant B logging — actual measured values from Pine table)
       const confluenceCurrent = state.confluence || "";
       html += `<div class="row" style="gap:14px;align-items:center;flex-wrap:wrap;margin-top:4px">`;
       // Actuals — 4 number inputs read from Pine table (Body%, Wick%, ATR×, Vol×)
@@ -2539,10 +2539,10 @@ function render() {
       html += `<span style="font-size:11px;color:var(--muted)">A×</span><input class="mini-input w48" id="inp_disp_atr" placeholder="1.6" oninput="saveInput(this)">`;
       html += `<span style="font-size:11px;color:var(--muted)">V×</span><input class="mini-input w48" id="inp_disp_vol" placeholder="1.9" oninput="saveInput(this)">`;
       html += `</div>`;
-      // Confluence — multi-TF alignment from Pine table 1H/4H rows
+      // 2026-05-06: HTF Confluence — alignment of higher TFs above Trigger TF (relative to anchor, not absolute).
       html += `<div style="display:flex;align-items:center;gap:4px">`;
-      html += `<span class="lbl"><span class="tip">Confluence ⓘ<span class="tip-box"><strong>Multi-TF Confluence</strong>\nDoes 1H/4H displacement align with your trade direction?\n\nRead from Pine table (rows 1H + 4H):\n• <strong>None</strong> — neither aligns (or 1H/4H = "—")\n• <strong>1H aligned</strong> — 1H bar shows displacement same direction as your trade\n• <strong>1H+4H aligned</strong> — both 1H and 4H aligned (max conviction)\n\nNote: 4H alone (without 1H) → still "None". 1H is primary HTF for 15M trades.</span></span></span>`;
-      for (const opt of ["None", "1H aligned", "1H+4H aligned"]) {
+      html += `<span class="lbl"><span class="tip">HTF Conf ⓘ<span class="tip-box"><strong>HTF Confluence</strong>\nHow many TFs ABOVE your Trigger TF show same-direction displacement.\n\n<strong>Mapping by Trigger TF:</strong>\n• Trigger 1h → +1=4h, +2=4h+D\n• Trigger 4h → +1=D,  +2=D+W\n• Trigger D  → +1=W,  +2=W+M\n• Trigger W  → +1=M (cap)\n\n<strong>Options:</strong>\n• <strong>None</strong> — Trigger displaces alone, no HTF aligned\n• <strong>+1 HTF</strong> — first TF above Trigger aligned\n• <strong>+2 HTF</strong> — both first and second TFs above Trigger aligned\n\nRead from Pine table — TF rows above your Trigger that show same-direction displacement.</span></span></span>`;
+      for (const opt of ["None", "+1 HTF", "+2 HTF"]) {
         const cls = confluenceCurrent === opt ? "pill sel" : "pill";
         html += `<button class="${cls}" onclick="pick('confluence','${opt}')">${opt}</button>`;
       }
@@ -2562,7 +2562,7 @@ function render() {
       html += `<div class="row" style="gap:14px;align-items:center;flex-wrap:wrap;margin-top:4px">`;
       // Trigger TF pills
       html += `<div style="display:flex;align-items:center;gap:4px">`;
-      html += `<span class="lbl"><span class="tip">Trig TF ⓘ<span class="tip-box"><strong>Trigger Timeframe</strong>\nWhich chart TF was the displacement that triggered analysis (read from Pine table label).\n\nPine table shows "{TF} In: X▲ Y▼ (of N)" — this {TF} is your Trigger TF.\n\nNatural sub-TF (auto-derived):\n• 1h → 15m (4 sub-bars)\n• 4h → 1h  (4 sub-bars)\n• D  → 4h  (6 sub-bars)\n• W  → D   (7 sub-bars)\n• M  → W   (~4 sub-bars)\n\nOn 15m chart Pine shows "scale not supported" — leave blank or use legacy Confluence field.</span></span></span>`;
+      html += `<span class="lbl"><span class="tip">Trig TF ⓘ<span class="tip-box"><strong>Trigger Timeframe</strong>\nWhich chart TF was the displacement that triggered analysis (read from Pine table label).\n\nPine table shows "{TF} In: X▲ Y▼ (of N)" — this {TF} is your Trigger TF.\n\nNatural sub-TF (auto-derived):\n• 1h → 15m (4 sub-bars)\n• 4h → 1h  (4 sub-bars)\n• D  → 4h  (6 sub-bars)\n• W  → D   (7 sub-bars)\n• M  → W   (~4 sub-bars)\n\nOn 15m chart Pine shows "scale not supported" — leave Trigger TF blank.</span></span></span>`;
       for (const tf of ["1h", "4h", "D", "W", "M"]) {
         const cls = triggerTfCurrent === tf ? "pill sel" : "pill";
         html += `<button class="${cls}" onclick="pick('trigger_tf','${tf}')">${tf}</button>`;
@@ -3777,8 +3777,8 @@ const FIELD_MAP = {
   disp:["Displacement",{"Pass✅":"Pass","Fail⛔":"Fail"}],
   trigger:["Trigger",{BOS:"BOS","Liq.Sweep":"Liquidity Sweep"}],
   confirm:["Confirmation",{Holds:"Continuation","Retest OK":"Acceptance","Not yet":"None"}],
-  // 2026-05-04: Multi-TF Confluence — read from Pine table 1H/4H rows
-  confluence:["Confluence",{None:"None","1H aligned":"1H aligned","1H+4H aligned":"1H+4H aligned"}],
+  // 2026-05-06: HTF Confluence — relative-to-Trigger-TF alignment (renamed from Confluence, see D18).
+  confluence:["HTF Confluence",{None:"None","+1 HTF":"+1 HTF","+2 HTF":"+2 HTF"}],
   // 2026-05-06: Trigger TF — chart TF where displacement triggered analysis (used with Inner Bull/Bear).
   trigger_tf:["Trigger TF",{"1h":"1h","4h":"4h","D":"D","W":"W","M":"M"}],
   range_position:["Range Position",{"Breakout Above":"Breakout Above","Breakout Below":"Breakout Below","Sweep Above":"Sweep Above","Sweep Below":"Sweep Below","Mid-Range":"Mid-Range"}],

@@ -1328,8 +1328,13 @@ function computeBlockers() {
     }
   }
   
-  // Existing: Reversal mode without Extreme selected
-  if (mode === "Reversal" && (!Array.isArray(S.extreme) || !S.extreme.length)) {
+  // 2026-05-07: Existing: Reversal mode without Extreme selected.
+  // Bug fix: post-O7.46, Near HTF Extreme split into extreme_above / extreme_below arrays.
+  // Old code checked S.extreme (legacy, always empty after migration). Now check per-side arrays.
+  // Accept if EITHER side filled — direction-side matching is enhancement work (not enforced here).
+  const extAboveSet = Array.isArray(S.extreme_above) && S.extreme_above.length > 0;
+  const extBelowSet = Array.isArray(S.extreme_below) && S.extreme_below.length > 0;
+  if (mode === "Reversal" && !extAboveSet && !extBelowSet) {
     blockers.push("Reversal mode without Extreme selected");
   }
   
@@ -2327,22 +2332,32 @@ function renderVerboseHTF() {
   else out += `<span style="color:var(--green)">✓</span> Not recently swept`;
   out += `</div>`;
 
-  // Extreme
+  // Extreme — 2026-05-07: read per-side arrays (post-O7.46 schema)
   out += `<div style="margin-bottom:6px"><b>Extreme:</b> `;
+  const extAbove = Array.isArray(S.extreme_above) ? S.extreme_above : [];
+  const extBelow = Array.isArray(S.extreme_below) ? S.extreme_below : [];
+  const extAny = extAbove.length > 0 || extBelow.length > 0;
+  const extAllTypes = [...extAbove, ...extBelow];
+  const renderExtremeList = () => {
+    const parts = [];
+    if (extAbove.length) parts.push(`↑${extAbove.join(", ")}`);
+    if (extBelow.length) parts.push(`↓${extBelow.join(", ")}`);
+    return parts.join(" | ");
+  };
+  const renderExtremeStrength = () => {
+    const strengths = extAllTypes.map(t => extremeStrength(t)).filter(Boolean);
+    return strengths.includes("Major") ? "Major" : strengths.length ? "Medium" : "—";
+  };
   if (mode === "Reversal") {
-    if (Array.isArray(S.extreme) && S.extreme.length) {
-      const strengths = S.extreme.map(t => extremeStrength(t)).filter(Boolean);
-      const best = strengths.includes("Major") ? "Major" : strengths.length ? "Medium" : "—";
-      out += `${S.extreme.join(", ")} → ${best}`;
+    if (extAny) {
+      out += `${renderExtremeList()} → ${renderExtremeStrength()}`;
     } else {
       out += `<span style="color:var(--red)">REQUIRED (empty → blocker)</span>`;
     }
   } else if (mode === "Wait") {
     // H1.25/H1.24 (2026-04-27): show selected extreme in Wait Mode (context for resolution)
-    if (Array.isArray(S.extreme) && S.extreme.length) {
-      const strengths = S.extreme.map(t => extremeStrength(t)).filter(Boolean);
-      const best = strengths.includes("Major") ? "Major" : strengths.length ? "Medium" : "—";
-      out += `${S.extreme.join(", ")} → ${best} <span style="color:var(--muted);font-size:10px">(optional, context for resolution)</span>`;
+    if (extAny) {
+      out += `${renderExtremeList()} → ${renderExtremeStrength()} <span style="color:var(--muted);font-size:10px">(optional, context for resolution)</span>`;
     } else if (S.wait_sub_type === "post_sweep_digestion") {
       // Hint: post_sweep_digestion typically references swept extreme
       out += `<span style="color:var(--muted)">empty</span> <span style="color:var(--yellow, #ca8a04);font-size:10px">💡 hint: post_sweep_digestion typically references swept extreme — consider filling above</span>`;
@@ -2446,9 +2461,11 @@ function insertT1T2Template() {
   const bBelow = Array.isArray(S.barrier_below) ? S.barrier_below : (S.barrier_below ? [S.barrier_below] : []);
   if (bAbove.length) lines.push("Barriers (Above): " + bAbove.join(", "));
   if (bBelow.length) lines.push("Barriers (Below): " + bBelow.join(", "));
-  // Extreme — if selected
-  const ext = Array.isArray(S.extreme) ? S.extreme : (S.extreme ? [S.extreme] : []);
-  if (ext.length) lines.push("Extreme: " + ext.join(", "));
+  // Extreme — if selected (2026-05-07: read per-side arrays post-O7.46)
+  const extAboveNotes = Array.isArray(S.extreme_above) ? S.extreme_above : [];
+  const extBelowNotes = Array.isArray(S.extreme_below) ? S.extreme_below : [];
+  if (extAboveNotes.length) lines.push("Extreme (Above): " + extAboveNotes.join(", "));
+  if (extBelowNotes.length) lines.push("Extreme (Below): " + extBelowNotes.join(", "));
   // Template block (user fills in, inline hints explain each field).
   // Note: no "System:" line here — status line above already shows Direction · Mode · Conviction · Phase · Regime.
   const templateBlock = "―\nTP1: \nTP2: \nBarrier position: (before TP1 / between TP1-TP2 / after TP2 / none)\nMy decision: (TP1 only / TP1+TP2 / skipped / other)\nDeviation: (fill if action ≠ system — explain why)";

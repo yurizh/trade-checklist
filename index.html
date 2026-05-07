@@ -1361,12 +1361,15 @@ function computeBlockers() {
 
 function computeConviction() {
   const risk = computeRisk();
-  if (!risk) return { label: null, triggers: 0 };
+  if (!risk) return { label: null, triggers: 0, labels: [] };
   
   let triggers = 0;
+  // CANONICALIZED 2026-05-07: labels parallel array for header display.
+  // Single source of truth — header buildHTFStatusInline reads .labels instead of building inline.
+  const labels = [];
   
   // HTF triggers (new structure)
-  if (state.weekly_bias === "Balanced") triggers++;
+  if (state.weekly_bias === "Balanced") { triggers++; labels.push("W.Bal"); }
   // H1.27 (2026-04-27): W≠D fires only on genuine bias conflict (Bullish vs Bearish).
   // Balanced is "absence of bias", not "competing bias" — skip W≠D when either side Balanced.
   // Otherwise W.Bal + W≠D double-count from same root cause (asymmetric Bias pair).
@@ -1374,6 +1377,7 @@ function computeConviction() {
       state.daily_bias !== state.weekly_bias &&
       state.weekly_bias !== "Balanced" && state.daily_bias !== "Balanced") {
     triggers++;
+    labels.push("W≠D");
   }
   // Liq. trigger — check level in trade direction AND if Target Liq. includes that side
   // Cancelled by Regime = Trend 3/3 (strong MO/WO/DO alignment compensates for weak target)
@@ -1387,32 +1391,54 @@ function computeConviction() {
   if (!isTrendDay) {
     if (dirForDraw === "Long" && drawIncludesAbove && dlAboveArr.some(t => drawLevelStrength(t) === "Minor")) {
       triggers++;
+      labels.push("Minor↑");
     } else if (dirForDraw === "Short" && drawIncludesBelow && dlBelowArr.some(t => drawLevelStrength(t) === "Minor")) {
       triggers++;
+      labels.push("Minor↓");
     } else if (dirForDraw === "Both↓") {
       // Balanced bias: check Minor on the side(s) where Target Liq. is set
       const hasAboveMinor = drawIncludesAbove && dlAboveArr.some(t => drawLevelStrength(t) === "Minor");
       const hasBelowMinor = drawIncludesBelow && dlBelowArr.some(t => drawLevelStrength(t) === "Minor");
-      if (hasAboveMinor || hasBelowMinor) triggers++;  // any side Minor = -1 (not double-count)
+      if (hasAboveMinor || hasBelowMinor) {
+        triggers++;  // any side Minor = -1 (not double-count)
+        if (hasAboveMinor && hasBelowMinor) labels.push("Minor↕");
+        else if (hasAboveMinor) labels.push("Minor↑");
+        else labels.push("Minor↓");
+      }
     }
   }
   const phase = computeLiquidityPhase();
-  if (phase === "Post-sweep↓") triggers++;
+  if (phase === "Post-sweep↓") { triggers++; labels.push("Post-sweep"); }
   
   // Barrier in direction of trade (multi-select)
   // For Both direction (Weekly Balanced): use Draw direction as proxy for target direction
   const dir = computeTradeCall();
-  if (dir === "Long") triggers += barrierStrength(state.barrier_above);
-  else if (dir === "Short") triggers += barrierStrength(state.barrier_below);
-  else if (dir === "Both↓") {
+  const pushBarrier = (side, strength) => {
+    if (strength === 2) labels.push("Barr" + side + "×2");
+    else if (strength === 1) labels.push("Barr" + side);
+  };
+  if (dir === "Long") {
+    const s = barrierStrength(state.barrier_above);
+    triggers += s; pushBarrier("↑", s);
+  } else if (dir === "Short") {
+    const s = barrierStrength(state.barrier_below);
+    triggers += s; pushBarrier("↓", s);
+  } else if (dir === "Both↓") {
     // Balanced bias: barrier applies based on Draw direction (which side price targets)
-    if (state.liq_draw === "Above") triggers += barrierStrength(state.barrier_above);
-    else if (state.liq_draw === "Below") triggers += barrierStrength(state.barrier_below);
-    else if (state.liq_draw === "Both") {
+    if (state.liq_draw === "Above") {
+      const s = barrierStrength(state.barrier_above);
+      triggers += s; pushBarrier("↑", s);
+    } else if (state.liq_draw === "Below") {
+      const s = barrierStrength(state.barrier_below);
+      triggers += s; pushBarrier("↓", s);
+    } else if (state.liq_draw === "Both") {
       // Both draws: take the stronger barrier to be conservative
       const bAbove = barrierStrength(state.barrier_above);
       const bBelow = barrierStrength(state.barrier_below);
-      triggers += Math.max(bAbove, bBelow);
+      const stronger = Math.max(bAbove, bBelow);
+      triggers += stronger;
+      if (bAbove >= bBelow) pushBarrier("↑", stronger);
+      else pushBarrier("↓", stronger);
     }
   }
   
@@ -1422,13 +1448,13 @@ function computeConviction() {
   // D1 (Mod symmetric penalty rule) preserved — applies only when Direction is committed (Long/Short).
   // Note: state.regime uses internal values "Mod 2/3 Bull"/"Mod 2/3 Bear" (display labels show "2/3 Bull"/"2/3 Bear").
   if (regimeStrength(state.regime) === "Mod 2/3") {
-    if (computeDirection() !== "Both↓") triggers++;
+    if (computeDirection() !== "Both↓") { triggers++; labels.push("Mod"); }
   }
   
   // H1.32 trigger (2026-04-29, counter:3): Soft Direction inference penalty.
   // When Direction inferred from sweep (Bias=Bal+Bal + Swept=Above/Below) — mark с -1 trigger as discipline marker.
   // Acknowledges weaker basis (sweep-derived, not bias-derived) — Option B recommendation per H1.32 review.
-  if (inferDirectionFromSweep()) triggers++;
+  if (inferDirectionFromSweep()) { triggers++; labels.push("Soft.Dir"); }
   
   // Market State triggers
   const ms = computeMarketState();
@@ -1441,25 +1467,25 @@ function computeConviction() {
   const sqzResolved = state.sqzresol === "OI Stabilized 30-60m"
                    || state.sqzresol === "New OI Build & Price Hold"
                    || state.sqzresol === "HTF Sweep";
-  if (ms === "L.Squeeze⛔" && !sqzResolved) triggers++;
-  if (ms === "S.Squeeze⛔" && !sqzResolved) triggers++;
-  if (ms === "Flat⛔") triggers++;
+  if (ms === "L.Squeeze⛔" && !sqzResolved) { triggers++; labels.push("L.Sqz"); }
+  if (ms === "S.Squeeze⛔" && !sqzResolved) { triggers++; labels.push("S.Sqz"); }
+  if (ms === "Flat⛔") { triggers++; labels.push("MS.Flat"); }
   
   // OI triggers
   const oi15 = computeOI15M();
-  if (oi15 === "Flat↓") triggers++;
-  if (oi15 === "Spike⛔") triggers++;
-  if (oi15 === "Diverge⛔") triggers++;
-  if (oi15 === "Against↓") triggers++;
+  if (oi15 === "Flat↓") { triggers++; labels.push("OI Flat↓"); }
+  if (oi15 === "Spike⛔") { triggers++; labels.push("OI Spike"); }
+  if (oi15 === "Diverge⛔") { triggers++; labels.push("OI Div"); }
+  if (oi15 === "Against↓") { triggers++; labels.push("OI Against"); }
   
   // Range position triggers (per O7.30: S5 Permission dissolved, range_position is new field)
-  if (state.range_position === "Mid-Range") triggers++;
-  if (state.range_position === "Sweep Above" || state.range_position === "Sweep Below") triggers++;
+  if (state.range_position === "Mid-Range") { triggers++; labels.push("Mid-Range"); }
+  if (state.range_position === "Sweep Above" || state.range_position === "Sweep Below") { triggers++; labels.push("Range.Sweep"); }
   
   // Conviction label by triggers count (per spec §7):
   // 0-1 triggers = High, 2 = Standard, 3+ = Low
   const label = triggers <= 1 ? "High" : triggers === 2 ? "Standard" : "Low";
-  return { label, triggers };
+  return { label, triggers, labels };
 }
 
 function computeFunding() {
@@ -1791,7 +1817,12 @@ function computeMode() {
   // Standard overrides
   if (regimeStrength(regime) === "Neutral") return "Reversal";
   if (range_position === "Sweep Above" || range_position === "Sweep Below") return "Reversal";
-  if (computeOI15M() === "Flat↓") return "Reversal";
+  // H1.35 IMPLEMENTED 2026-05-07: OI Flat → Reversal forced trigger REMOVED.
+  // Was firing false-positives on retest/pullback setups (~30%+ frequency in backtest mode,
+  // not the estimated 5%). Conviction penalty (-1) preserved in computeConviction.
+  // Replaced with informational warning in detectHTFWarnings (id: H1.35).
+  // F3 exception logged 2026-05-07 (Day 4 backtest session): pre-reliance phase, operator
+  // explicitly OK with strategy tweak since not betting on auto-output yet.
   
   return "Continuation";
 }
@@ -1904,18 +1935,43 @@ function detectHTFWarnings(S, call, mode) {
     }
   }
   
+  // ==== H1.35: OI 15M Flat — possible exhaustion (informational warning) ====
+  // IMPLEMENTED 2026-05-07: Replaces removed forced Reversal trigger in computeMode.
+  // OI Flat captures positioning ambiguity. Operator decides whether it indicates exhaustion
+  // (Reversal candidate) or pullback consolidation (Continuation candidate). Conviction
+  // penalty (-1) preserved separately in computeConviction.
+  const oi15forWarn = computeOI15M();
+  if (oi15forWarn === "Flat↓") {
+    warnings.push({
+      id: "H1.35",
+      title: "OI 15M Flat — possible exhaustion",
+      body: "OI 15M flat (no positioning growth). Possible exhaustion — consider Reversal Mode if HTF supports (recent strong move + extreme nearby + counter-bias kinetic). Not auto-forced; operator decision."
+    });
+  }
+  
   return warnings;
 }
 
 // Inline compact status summary — placed in section header.
 // Same verdict data as the old banner status line, just compact sizing for inline use.
+// CANONICALIZED 2026-05-07: Uses computeMode(), computeConviction(), computeBlockers() directly.
+// Previous version had inline duplicate Mode logic + inline trigger list, causing header/body
+// desync (especially after computeMode added new triggers like OI Flat, Squeeze resolutions).
 function buildHTFStatusInline() {
   const call = computeTradeCall();
-  const callColor = call === "Long" ? "var(--green)" : call === "Short" ? "var(--red)" : "var(--muted)";
+  // H1.33 fix extension to header (2026-05-07): Use computeDirection() (with fallback to call)
+  // matching body display at line ~2255. Previously header showed raw `call` (e.g. "Both↓") while
+  // body showed resolved "Long"/"Short" via computeDirection — visible Direction desync.
+  const resolvedDir = computeDirection() || call;
+  const callColor = resolvedDir === "Long" ? "var(--green)" : resolvedDir === "Short" ? "var(--red)" : "var(--muted)";
   const phase = computeLiquidityPhase();
   const phaseColor = phase === "Accumulation" ? "var(--green)" : phase === "Post-sweep↓" ? "var(--yellow, #ca8a04)" : phase === "Transition⛔" ? "var(--red)" : "var(--muted)";
-  let localMode = "—"; let lmColor = "var(--muted)";
-  // H1.25 / H1.24 (2026-04-27): Wait mode override sub-type label mapping
+  
+  // Mode — canonical via computeMode() (CANONICALIZED 2026-05-07).
+  // Previous inline logic was simplified subset of computeMode → header/body desync on
+  // triggers like Squeeze states, Range Sweep, OI Flat (pre-H1.35 fix). Now single source of truth.
+  // H1.25/H1.24 Wait sub-type label mapping retained (computeMode returns plain "Wait", display needs sub-type).
+  const modeRaw = computeMode();
   const waitLabel = (sub) => {
     if (sub === "post_sweep_digestion") return "Wait (post-sweep digestion)";
     if (sub === "target_premature") return "Wait (target premature)";
@@ -1923,92 +1979,44 @@ function buildHTFStatusInline() {
     if (sub === "htf_pending") return "Wait (htf pending)";
     return "Wait";
   };
-  if (phase === "Transition⛔") { localMode = "No Trade"; lmColor = "var(--red)"; }
-  else if (state.wait_sub_type) { localMode = waitLabel(state.wait_sub_type); lmColor = "var(--yellow, #ca8a04)"; }
-  else if (regimeStrength(state.regime) === "Neutral") { localMode = "Reversal"; lmColor = "var(--red)"; }
-  else if (state.swept === "Above" || state.swept === "Below") { localMode = "Reversal"; lmColor = "var(--red)"; }
-  else if (state.regime) { localMode = "Continuation"; lmColor = "var(--green)"; }
-  // Triggers
-  const htfTriggers = [];
-  if (state.weekly_bias === "Balanced") htfTriggers.push("W.Bal");
-  // H1.27 (2026-04-27): W≠D fires only on genuine bias conflict (both directional, opposite).
-  if (state.daily_bias && state.weekly_bias &&
-      state.daily_bias !== state.weekly_bias &&
-      state.weekly_bias !== "Balanced" && state.daily_bias !== "Balanced") {
-    htfTriggers.push("W≠D");
-  }
-  const incAbove = state.liq_draw === "Above" || state.liq_draw === "Both";
-  const incBelow = state.liq_draw === "Below" || state.liq_draw === "Both";
-  const isTrendDay = regimeStrength(state.regime) === "Trend 3/3";
-  const dlAbove = Array.isArray(state.draw_level_above) ? state.draw_level_above : (state.draw_level_above ? [state.draw_level_above] : []);
-  const dlBelow = Array.isArray(state.draw_level_below) ? state.draw_level_below : (state.draw_level_below ? [state.draw_level_below] : []);
-  if (!isTrendDay) {
-    if (call === "Long" && incAbove && dlAbove.some(t => drawLevelStrength(t) === "Minor")) htfTriggers.push("Minor↑");
-    else if (call === "Short" && incBelow && dlBelow.some(t => drawLevelStrength(t) === "Minor")) htfTriggers.push("Minor↓");
-    else if (call === "Both↓") {
-      const hasAboveMinor = incAbove && dlAbove.some(t => drawLevelStrength(t) === "Minor");
-      const hasBelowMinor = incBelow && dlBelow.some(t => drawLevelStrength(t) === "Minor");
-      if (hasAboveMinor && hasBelowMinor) htfTriggers.push("Minor↕");
-      else if (hasAboveMinor) htfTriggers.push("Minor↑");
-      else if (hasBelowMinor) htfTriggers.push("Minor↓");
-    }
-  }
-  if (phase === "Post-sweep↓") htfTriggers.push("Post-sweep");
-  if (call === "Long") {
-    const s = barrierStrength(state.barrier_above);
-    if (s === 2) htfTriggers.push("Barr↑×2");
-    else if (s === 1) htfTriggers.push("Barr↑");
-  } else if (call === "Short") {
-    const s = barrierStrength(state.barrier_below);
-    if (s === 2) htfTriggers.push("Barr↓×2");
-    else if (s === 1) htfTriggers.push("Barr↓");
-  } else if (call === "Both↓") {
-    if (state.liq_draw === "Above") {
-      const s = barrierStrength(state.barrier_above);
-      if (s === 2) htfTriggers.push("Barr↑×2");
-      else if (s === 1) htfTriggers.push("Barr↑");
-    } else if (state.liq_draw === "Below") {
-      const s = barrierStrength(state.barrier_below);
-      if (s === 2) htfTriggers.push("Barr↓×2");
-      else if (s === 1) htfTriggers.push("Barr↓");
-    } else if (state.liq_draw === "Both") {
-      const bAbove = barrierStrength(state.barrier_above);
-      const bBelow = barrierStrength(state.barrier_below);
-      if (bAbove >= bBelow && bAbove > 0) {
-        if (bAbove === 2) htfTriggers.push("Barr↑×2");
-        else htfTriggers.push("Barr↑");
-      } else if (bBelow > 0) {
-        if (bBelow === 2) htfTriggers.push("Barr↓×2");
-        else htfTriggers.push("Barr↓");
-      }
-    }
-  }
-  // H1.31 fix (2026-04-29): Mod trigger suppressed когда Direction=Both↓ (consistent с computeConviction).
-  if (regimeStrength(state.regime) === "Mod 2/3" && computeDirection() !== "Both↓") htfTriggers.push("Mod");
-  // H1.32 (2026-04-29): Soft Direction trigger when sweep-derived inference active (Bias=Bal+Bal + Swept).
-  if (inferDirectionFromSweep()) htfTriggers.push("Soft.Dir");
-  const htfTrigCount = htfTriggers.reduce((s, t) => s + (t.includes("×2") ? 2 : 1), 0);
-  const htfConvLabel = htfTrigCount <= 1 ? "High" : htfTrigCount === 2 ? "Standard" : "Low";
+  let localMode = "—", lmColor = "var(--muted)";
+  if (modeRaw === "No Trade") { localMode = "No Trade"; lmColor = "var(--red)"; }
+  else if (modeRaw === "Wait") { localMode = waitLabel(state.wait_sub_type); lmColor = "var(--yellow, #ca8a04)"; }
+  else if (modeRaw === "Reversal") { localMode = "Reversal"; lmColor = "var(--red)"; }
+  else if (modeRaw === "Continuation") { localMode = "Continuation"; lmColor = "var(--green)"; }
+  
+  // Conviction — canonical via computeConviction() (CANONICALIZED 2026-05-07).
+  // Previous inline trigger-list logic missed several triggers added later (OI variants, MS Flat,
+  // Range Mid/Sweep, Squeeze states) → header undercounted vs body. Now reads .labels parallel array.
+  const {label: htfConvLabel, triggers: htfTrigCount, labels: htfTriggers} = computeConviction();
+  
   // Blocker check (B2 fix): if any structural blocker fires, override dot to red regardless of conviction
   const headerBlockers = computeBlockers();
-  // Note: Triggers ≥ 3 is also a blocker but already reflected in conviction label "Low"
   const hasStructuralBlocker = headerBlockers.length > 0;
+  // CANONICALIZED 2026-05-07: also count Triggers ≥ 3 blocker (was previously body-only).
+  // This fix aligns header ⛔N with body Blockers count (was off-by-one when triggers ≥ 3 fired).
+  const tooManyRisks = htfTrigCount >= 3 && !state.wait_sub_type;
+  const totalBlockerCount = headerBlockers.length + (tooManyRisks ? 1 : 0);
+  
   let dotColor = "var(--muted)";
-  if (phase === "Transition⛔" || hasStructuralBlocker) dotColor = "var(--red)";
+  if (phase === "Transition⛔" || hasStructuralBlocker || tooManyRisks) dotColor = "var(--red)";
   else if (htfConvLabel === "High") dotColor = "var(--green)";
   else if (htfConvLabel === "Standard") dotColor = "var(--yellow, #ca8a04)";
-  else dotColor = "var(--red)";
-  const convColor = htfConvLabel === "High" ? "var(--green)" : htfConvLabel === "Standard" ? "var(--yellow, #ca8a04)" : "var(--red)";
+  else if (htfConvLabel === "Low") dotColor = "var(--red)";
+  
+  const convColor = htfConvLabel === "High" ? "var(--green)" : htfConvLabel === "Standard" ? "var(--yellow, #ca8a04)" : htfConvLabel === "Low" ? "var(--red)" : "var(--muted)";
+  const convDisplay = htfConvLabel ? `${htfConvLabel} (-${htfTrigCount})` : "—";
   const trigLabel = htfTriggers.length ? "↓" + htfTriggers.join(",") : "";
+  
   // Build compact inline HTML — letter-spacing:normal overrides group-title 0.06em.
   let s = '';
   s += `<span style="display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px;letter-spacing:normal;font-weight:400;margin-left:6px">`;
   s += `<span style="font-size:13px;color:${dotColor};line-height:1">●</span>`;
-  s += `<span style="font-size:11px;font-weight:700;color:${callColor}">${call||"—"}</span>`;
+  s += `<span style="font-size:11px;font-weight:700;color:${callColor}">${resolvedDir||"—"}</span>`;
   s += `<span style="font-size:10px;color:var(--muted)">·</span>`;
   s += `<span style="font-size:11px;font-weight:700;color:${lmColor}">${localMode}</span>`;
   s += `<span style="font-size:10px;color:var(--muted)">·</span>`;
-  s += `<span style="font-size:11px;font-weight:700;color:${convColor}">${htfConvLabel} (-${htfTrigCount})</span>`;
+  s += `<span style="font-size:11px;font-weight:700;color:${convColor}">${convDisplay}</span>`;
   s += `<span style="font-size:10px;color:var(--muted)">·</span>`;
   s += `<span style="font-size:11px;font-weight:600;color:${phaseColor}">${phase||"—"}</span>`;
   const regStrength = regimeStrength(state.regime);
@@ -2020,16 +2028,23 @@ function buildHTFStatusInline() {
     s += `<span style="font-size:11px;font-weight:600;color:${regColor}">${regLabel}</span>`;
   }
   if (trigLabel) s += `<span style="font-size:10px;color:var(--red);margin-left:2px">${trigLabel}</span>`;
-  // B2 fix: visible blocker indicator in header
-  if (hasStructuralBlocker) {
-    const blockerTitle = headerBlockers.join(' · ');
-    s += `<span style="font-size:10px;color:var(--red);font-weight:700;margin-left:2px" title="${blockerTitle}">⛔${headerBlockers.length}</span>`;
-  }
-  // O7.20 fix (2026-04-29): When Wait override active AND trigCount ≥ 3, surface hidden Too Many Risks blocker.
-  // Mode = Wait label takes display precedence (line 694), but conviction blocker is suppressed from ⛔ badge by design.
-  // This makes hybrid state explicit so user understands setup is structurally blocked despite Wait Mode override.
-  if (state.wait_sub_type && htfTrigCount >= 3 && !hasStructuralBlocker) {
-    s += `<span style="font-size:10px;color:var(--red);font-weight:700;margin-left:2px" title="Triggers ≥ 3 (Too Many Risks) — Wait Mode does not bypass conviction blocker">⛔Risks</span>`;
+  // CANONICALIZED 2026-05-07: Header ⛔N badge now reflects TOTAL blockers (structural + Triggers ≥ 3),
+  // matching body Blockers count. Previous version showed only structural → header undercounted (e.g. ⛔1 vs body 2).
+  // Wait Mode special case retained: ⛔Risks badge surfaces hidden Too Many Risks under Wait override (O7.20).
+  if (totalBlockerCount > 0 && !state.wait_sub_type) {
+    const allBlockers = [...headerBlockers];
+    if (tooManyRisks) allBlockers.push("Triggers ≥ 3 (Too Many Risks)");
+    const blockerTitle = allBlockers.join(' · ');
+    s += `<span style="font-size:10px;color:var(--red);font-weight:700;margin-left:2px" title="${blockerTitle}">⛔${totalBlockerCount}</span>`;
+  } else if (state.wait_sub_type) {
+    // Wait Mode: structural blockers still shown, Too Many Risks shown as ⛔Risks per O7.20
+    if (hasStructuralBlocker) {
+      const blockerTitle = headerBlockers.join(' · ');
+      s += `<span style="font-size:10px;color:var(--red);font-weight:700;margin-left:2px" title="${blockerTitle}">⛔${headerBlockers.length}</span>`;
+    }
+    if (htfTrigCount >= 3 && !hasStructuralBlocker) {
+      s += `<span style="font-size:10px;color:var(--red);font-weight:700;margin-left:2px" title="Triggers ≥ 3 (Too Many Risks) — Wait Mode does not bypass conviction blocker">⛔Risks</span>`;
+    }
   }
   const statusWarnings = detectHTFWarnings(state, call, localMode);
   if (statusWarnings.length) {

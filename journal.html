@@ -44,11 +44,40 @@
   .filter-pill:hover { color: var(--fg); }
   .filter-pill.active { color: var(--fg); background: var(--tag-bg); border-color: var(--muted); }
 
-  /* Stats summary */
+  /* Stats summary — clickable buckets */
   .stats-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 4px; margin-bottom: 12px; }
-  .stat-mini { background: var(--card); border: 1px solid var(--border); border-radius: 5px; padding: 6px 8px; text-align: center; }
+  .stat-mini { background: var(--card); border: 1px solid var(--border); border-radius: 5px; padding: 6px 8px; text-align: center; transition: border-color 0.15s, transform 0.05s; }
+  .stat-mini.clickable { cursor: pointer; }
+  .stat-mini.clickable:hover { border-color: var(--muted); }
+  .stat-mini.clickable:active { transform: scale(0.98); }
+  .stat-mini.active { border-color: var(--green); background: var(--green-bg); }
   .stat-mini-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
   .stat-mini-val { font-size: 14px; font-weight: 800; margin-top: 1px; }
+
+  /* Modal — trade detail popup */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: flex-start; justify-content: center; padding: 24px 16px; z-index: 1000; overflow-y: auto; }
+  .modal-overlay.open { display: flex; }
+  .modal-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; max-width: 720px; width: 100%; max-height: calc(100vh - 48px); overflow-y: auto; position: relative; box-shadow: 0 20px 60px rgba(0,0,0,0.4); }
+  .modal-close { position: absolute; top: 8px; right: 10px; font-size: 20px; cursor: pointer; color: var(--muted); border: none; background: none; padding: 4px 8px; font-family: inherit; }
+  .modal-close:hover { color: var(--fg); }
+  .modal-header { padding-bottom: 10px; border-bottom: 2px solid var(--border); margin-bottom: 10px; }
+  .modal-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .modal-asset { font-size: 22px; font-weight: 800; }
+  .modal-meta-row { font-size: 11px; color: var(--muted); }
+  .modal-section { margin-bottom: 14px; }
+  .modal-section-title { font-size: 11px; font-weight: 800; color: var(--muted); letter-spacing: 0.12em; margin-bottom: 6px; padding-bottom: 3px; border-bottom: 1px dashed var(--border); }
+  .modal-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; }
+  .modal-field { font-size: 12px; padding: 2px 0; display: flex; gap: 8px; }
+  .modal-field-label { color: var(--muted); min-width: 110px; flex-shrink: 0; }
+  .modal-field-val { font-weight: 600; flex: 1; word-break: break-word; }
+  .modal-field-val.good { color: var(--green); }
+  .modal-field-val.bad { color: var(--red); }
+  .modal-field-val.warn { color: var(--orange); }
+  .modal-notes-block { font-size: 12px; padding: 8px 10px; background: var(--tag-bg); border-radius: 4px; line-height: 1.5; white-space: pre-wrap; }
+  .modal-screenshot { font-size: 11px; color: var(--blue); text-decoration: none; }
+  .modal-screenshot:hover { text-decoration: underline; }
+  .card-asset.clickable { cursor: pointer; }
+  .card-asset.clickable:hover { color: var(--blue); text-decoration: underline; }
 
   /* Sections */
   .section { margin-bottom: 18px; }
@@ -176,7 +205,7 @@
 
 <div id="statsSummary" class="stats-summary"></div>
 
-<div class="section">
+<div class="section" id="openSection">
   <div class="section-title">OPEN TRADES <span class="section-count" id="openCount"></span></div>
   <div id="openCards" class="cards"></div>
 </div>
@@ -191,10 +220,19 @@
   <div id="resultsBox" class="results-box"></div>
 </div>
 
+<!-- Modal for trade detail view -->
+<div id="modalOverlay" class="modal-overlay" onclick="closeTradeModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeTradeModal()" aria-label="Close">×</button>
+    <div id="modalContent"></div>
+  </div>
+</div>
+
 <script>
 const DB_ID = "24933910ce304b65a1f50b137d7392ae";
 let allTrades = [];
 let filters = { mode: "all", asset: "all", skipped: "show" };
+let viewBucket = "all"; // "all" | "open" | "skipped" | "closed"
 
 function loadCfg() {
   document.getElementById("cfg_worker").value = localStorage.getItem("tc_worker") || "";
@@ -275,6 +313,11 @@ async function loadTrades() {
   }
 }
 
+function setBucketView(bucket) {
+  viewBucket = bucket;
+  applyAndRender();
+}
+
 function applyAndRender() {
   const trades = applyFilters(allTrades);
   const open = trades.filter(t => !t.Skipped && t["Exit Price"] == null && !t["Exit Reason"]);
@@ -289,6 +332,33 @@ function applyAndRender() {
   renderOpenCards(open);
   renderSkippedSection(skipped);
   renderResults(closed);
+  applyBucketVisibility();
+}
+
+function applyBucketVisibility() {
+  const openSection = document.getElementById("openSection");
+  const skippedSection = document.getElementById("skippedSection");
+  const resultsSection = document.getElementById("resultsSection");
+  // First reset to default — let individual renderers (filter Skipped, no closed trades) apply their own hides
+  // Then apply bucket override.
+  if (viewBucket === "all") {
+    openSection.style.display = "";
+    // skippedSection.display managed by renderSkippedSection (filter+empty logic)
+    // resultsSection.display managed by renderResults (empty logic)
+  } else if (viewBucket === "open") {
+    openSection.style.display = "";
+    skippedSection.style.display = "none";
+    resultsSection.style.display = "none";
+  } else if (viewBucket === "skipped") {
+    openSection.style.display = "none";
+    skippedSection.style.display = ""; // override even if filter would hide
+    resultsSection.style.display = "none";
+  } else if (viewBucket === "closed") {
+    openSection.style.display = "none";
+    skippedSection.style.display = "none";
+    // For "closed" bucket — show resultsSection even if it would otherwise be hidden (no trades)
+    resultsSection.style.display = "";
+  }
 }
 
 function renderStatsSummary(all, open, skipped, closed) {
@@ -298,17 +368,23 @@ function renderStatsSummary(all, open, skipped, closed) {
   const totalR = closedWithPnL.reduce((s, t) => s + pnlOf(t), 0);
   const wr = closedWithPnL.length ? Math.round(wins.length / closedWithPnL.length * 100) : null;
 
+  // First 4 are clickable view buckets, last 2 are info-only
   const items = [
-    { label: "Total", val: all.length },
-    { label: "Open", val: open.length, color: open.length ? "var(--green)" : null },
-    { label: "Skipped", val: skipped.length, color: "var(--yellow)" },
-    { label: "Closed", val: closed.length },
+    { label: "Total", val: all.length, bucket: "all" },
+    { label: "Open", val: open.length, color: open.length ? "var(--green)" : null, bucket: "open" },
+    { label: "Skipped", val: skipped.length, color: "var(--yellow)", bucket: "skipped" },
+    { label: "Closed", val: closed.length, bucket: "closed" },
     { label: "Win Rate", val: wr !== null ? wr + "%" : "—", color: wr !== null ? (wr >= 50 ? "var(--green)" : "var(--red)") : null },
     { label: "Total PnL", val: closedWithPnL.length ? (totalR >= 0 ? "+" : "") + totalR.toFixed(1) + "R" : "—", color: closedWithPnL.length ? (totalR >= 0 ? "var(--green)" : "var(--red)") : null },
   ];
-  const html = items.map(i =>
-    `<div class="stat-mini"><div class="stat-mini-label">${i.label}</div><div class="stat-mini-val"${i.color ? ' style="color:'+i.color+'"' : ''}>${i.val}</div></div>`
-  ).join("");
+  const html = items.map(i => {
+    const isClickable = !!i.bucket;
+    const isActive = isClickable && viewBucket === i.bucket;
+    const cls = "stat-mini" + (isClickable ? " clickable" : "") + (isActive ? " active" : "");
+    const onclick = isClickable ? ` onclick="setBucketView('${i.bucket}')"` : "";
+    const title = isClickable ? ` title="Click to filter — show only ${i.label.toLowerCase()}"` : "";
+    return `<div class="${cls}"${onclick}${title}><div class="stat-mini-label">${i.label}</div><div class="stat-mini-val"${i.color ? ' style="color:'+i.color+'"' : ''}>${i.val}</div></div>`;
+  }).join("");
   document.getElementById("statsSummary").innerHTML = html;
 }
 
@@ -485,7 +561,7 @@ function renderCard(t, isSkipped) {
   const tradeMode = t["Trade Mode"] || "";
 
   let header = '<div class="card-top">';
-  header += `<span class="card-asset">${esc(t.Asset || "?")}</span>`;
+  header += `<span class="card-asset clickable" onclick="openTradeModal('${t.id}')" title="Click for full details">${esc(t.Asset || "?")}</span>`;
   if (t.Direction) header += `<span class="card-dir ${dir}">${t.Direction}</span>`;
   if (convText) header += `<span class="card-conv">${esc(convText)}</span>`;
   if (tradeMode && tradeMode !== "No Trade") header += `<span class="card-mode" style="color:var(--purple)">${esc(tradeMode)}</span>`;
@@ -551,7 +627,8 @@ function renderResults(closed) {
   const el = document.getElementById("resultsBox");
   const section = document.getElementById("resultsSection");
   if (!closed.length) {
-    section.style.display = "none";
+    el.innerHTML = '<div class="empty">No closed trades yet</div>';
+    section.style.display = "none"; // hidden by default; bucket='closed' override re-shows
     return;
   }
   section.style.display = "";
@@ -615,6 +692,190 @@ async function closeTrade(pageId) {
     if (data.message) { msgEl.textContent = data.message; msgEl.style.color = "var(--red)"; }
     else { msgEl.textContent = "✅ Closed!"; msgEl.style.color = "var(--green)"; setTimeout(loadTrades, 1500); }
   } catch(e) { msgEl.textContent = e.message; msgEl.style.color = "var(--red)"; }
+}
+
+// === MODAL — Trade Detail View ===
+function openTradeModal(pageId) {
+  const t = allTrades.find(x => x.id === pageId);
+  if (!t) return;
+  document.getElementById("modalContent").innerHTML = buildTradeDetailHTML(t);
+  document.getElementById("modalOverlay").classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function closeTradeModal(event) {
+  // Only close on overlay-click or close-button-click (not on modal-box-click)
+  if (event && event.target.id !== "modalOverlay" && !event.target.classList?.contains("modal-close")) return;
+  document.getElementById("modalOverlay").classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+// Esc closes modal
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById("modalOverlay").classList.contains("open")) {
+    closeTradeModal();
+  }
+});
+
+function arrFmt(arr) {
+  if (!arr) return null;
+  if (Array.isArray(arr)) return arr.length ? arr.join(", ") : null;
+  return arr;
+}
+
+function buildTradeDetailHTML(t) {
+  const dir = (t.Direction || "").toLowerCase();
+  const mode = t.Mode || "Live";
+  const elapsed = elapsedSince(t.Date);
+
+  // Header
+  let html = '<div class="modal-header">';
+  html += '<div class="modal-title-row">';
+  html += `<span class="modal-asset">${esc(t.Asset || "?")}</span>`;
+  if (t.Direction) html += `<span class="card-dir ${dir}">${t.Direction}</span>`;
+  if (t.Conviction) html += `<span class="card-conv">${esc(t.Conviction)}</span>`;
+  if (t["Trade Mode"]) {
+    const tmColor = t["Trade Mode"] === "No Trade" ? "var(--red)" : "var(--purple)";
+    html += `<span class="card-mode" style="color:${tmColor}">${esc(t["Trade Mode"])}</span>`;
+  }
+  html += `<span class="badge badge-${mode.toLowerCase()}">${mode}</span>`;
+  if (t.Skipped) html += `<span class="badge badge-skipped">⏭ Skipped</span>`;
+  if (t["Skip Reason"]) html += `<span class="badge badge-skip-reason">${esc(t["Skip Reason"])}</span>`;
+  html += '</div>';
+  const metaParts = [];
+  if (t["Trade ID"]) metaParts.push("Trade ID: " + esc(t["Trade ID"]));
+  if (t.Date) metaParts.push("Date: " + t.Date.replace("T", " ").slice(0, 16));
+  if (elapsed) metaParts.push("Elapsed: " + elapsed);
+  if (metaParts.length) html += `<div class="modal-meta-row">${metaParts.join(" · ")}</div>`;
+  html += '</div>';
+
+  // Field groups
+  const groups = [
+    {
+      title: "📊 HTF CONTEXT",
+      fields: [
+        ["Weekly Bias", t["Weekly Bias"], tagBiasCls(t["Weekly Bias"])],
+        ["Daily Bias", t["Daily Bias"], tagBiasCls(t["Daily Bias"])],
+        ["Day Regime", t["Day Regime"], tagRegimeCls(t["Day Regime"])],
+        ["HTF Bias", t["HTF Bias"]],
+        ["HTF Liquidity", t["HTF Liquidity"]],
+        ["HTF Confluence", t["HTF Confluence"]],
+        ["HTF Barrier", t["HTF Barrier"], t["HTF Barrier"] === "Yes" ? "bad" : ""],
+        ["Liquidity Phase", t["Liquidity Phase"], t["Liquidity Phase"] === "Transition" ? "bad" : ""],
+        ["Target Liq.", t["Target Liq."]],
+        ["Recently Swept", t["Recently Swept"], t["Recently Swept"] && t["Recently Swept"] !== "None" ? "warn" : ""],
+        ["Range Position", t["Range Position"], (t["Range Position"] || "").includes("Mid") ? "warn" : ""],
+        ["Liq. Above", arrFmt(t["Liq. Above"])],
+        ["Liq. Below", arrFmt(t["Liq. Below"])],
+        ["Barrier Above", arrFmt(t["Barrier Above"])],
+        ["Barrier Below", arrFmt(t["Barrier Below"])],
+        ["Near HTF Extreme", arrFmt(t["Near HTF Extreme"])],
+      ]
+    },
+    {
+      title: "⚡ MARKET DYNAMICS",
+      fields: [
+        ["Market State", t["Market State"], tagMSCls(t["Market State"] || "")],
+        ["Pre-Market State", t["Pre-Market State"]],
+        ["Path Transition", t["Path Transition"], tagPathCls(t["Path Transition"])],
+        ["Phase (MD)", t["Phase"], tagPhaseCls(t["Phase"])],
+        ["Movement Axis", t["Movement Axis"], t["Movement Axis"] === "Conflicting" ? "warn" : ""],
+        ["Driver Axis", t["Driver Axis"], t["Driver Axis"] === "Diverging" ? "warn" : ""],
+        ["OI Confirm", t["OI Confirm"], tagOICls(t["OI Confirm"])],
+        ["Funding Check", t["Funding Check"], t["Funding Check"] === "No Trade" ? "bad" : (t["Funding Check"] === "Half Risk" ? "warn" : "")],
+        ["Pre-Market Price", t["Pre-Market Price"]],
+        ["Pre-Market OI", t["Pre-Market OI"]],
+      ]
+    },
+    {
+      title: "🎯 TRIGGER & ENTRY",
+      fields: [
+        ["Trigger", t["Trigger"], "good"],
+        ["Trigger TF", t["Trigger TF"]],
+        ["Confirmation", t["Confirmation"]],
+        ["Displacement", t["Displacement"], t["Displacement"] === "Pass" ? "good" : (t["Displacement"] === "Fail" ? "bad" : "")],
+        ["Disp Body %", t["Disp Body %"]],
+        ["Disp Wick %", t["Disp Wick %"]],
+        ["Disp ATR ×", t["Disp ATR ×"]],
+        ["Disp Vol ×", t["Disp Vol ×"]],
+        ["Inner Bull", t["Inner Bull"]],
+        ["Inner Bear", t["Inner Bear"]],
+        ["Session", t["Session"]],
+      ]
+    },
+    {
+      title: "💰 PRICES & GEOMETRY",
+      fields: [
+        ["Entry Price", t["Entry Price"]],
+        ["Stop Price", t["Stop Price"], "bad"],
+        ["TP1", t["TP1"], "good"],
+        ["TP2", t["TP2"], "good"],
+        ["Risk %", t["Risk %"] != null ? t["Risk %"] + "%" : null],
+        ["Account $", t["Account $"] != null ? "$" + t["Account $"] : null],
+        ["RR Target", t["RR Target"]],
+        ["Trade Horizon", t["Trade Horizon"]],
+        ["Current Price", t["Current Price"]],
+        ["ATR(14) @ 1H", t["ATR(14) @ 1H"]],
+        ["ATR(14) @ 1D", t["ATR(14) @ 1D"]],
+        ["Target Above Price", t["Target Above Price"]],
+        ["Target Above 2 Price", t["Target Above 2 Price"]],
+        ["Target Below Price", t["Target Below Price"]],
+        ["Target Below 2 Price", t["Target Below 2 Price"]],
+        ["Barrier Above Price", t["Barrier Above Price"]],
+        ["Barrier Below Price", t["Barrier Below Price"]],
+        ["Near Extreme Above", t["Near Extreme Above Price"]],
+        ["Near Extreme Below", t["Near Extreme Below Price"]],
+      ]
+    },
+    {
+      title: "📋 OUTCOME",
+      fields: [
+        ["Exit Price", t["Exit Price"]],
+        ["Exit Reason", t["Exit Reason"]],
+        ["Outcome", t["Outcome"], t["Outcome"] === "Win" ? "good" : (t["Outcome"] === "Loss" ? "bad" : "")],
+        ["PnL R", t["PnL R"] != null ? (parseFloat(t["PnL R"]) >= 0 ? "+" : "") + t["PnL R"] + "R" : null, t["PnL R"] != null ? (parseFloat(t["PnL R"]) >= 0 ? "good" : "bad") : ""],
+        ["PnL $", t["PnL $"] != null ? "$" + t["PnL $"] : null],
+        ["PnL %", t["PnL %"] != null ? t["PnL %"] + "%" : null],
+        ["R Multiple", t["R Multiple"]],
+      ]
+    },
+  ];
+
+  for (const g of groups) {
+    const filledFields = g.fields.filter(f => f[1] != null && f[1] !== "");
+    if (!filledFields.length) continue;
+    html += `<div class="modal-section"><div class="modal-section-title">${g.title}</div>`;
+    html += '<div class="modal-fields">';
+    for (const f of filledFields) {
+      const [label, val, cls] = f;
+      const cssCls = cls ? ` ${cls}` : "";
+      html += `<div class="modal-field"><span class="modal-field-label">${esc(label)}</span><span class="modal-field-val${cssCls}">${esc(val)}</span></div>`;
+    }
+    html += '</div></div>';
+  }
+
+  // Notes (full, unsplit)
+  if (t.Notes) {
+    html += `<div class="modal-section"><div class="modal-section-title">📝 NOTES</div><div class="modal-notes-block">${esc(t.Notes)}</div></div>`;
+  }
+
+  // Lessons
+  if (t.Lessons) {
+    html += `<div class="modal-section"><div class="modal-section-title">💡 LESSONS</div><div class="modal-notes-block" style="background:var(--green-bg);color:var(--green)">${esc(t.Lessons)}</div></div>`;
+  }
+
+  // Tags
+  if (t.Tags && Array.isArray(t.Tags) && t.Tags.length) {
+    html += `<div class="modal-section"><div class="modal-section-title">🏷 TAGS</div>`;
+    html += `<div style="display:flex;gap:4px;flex-wrap:wrap">${t.Tags.map(tg => `<span class="tag">${esc(tg)}</span>`).join("")}</div></div>`;
+  }
+
+  // Screenshot
+  if (t.Screenshot) {
+    html += `<div class="modal-section"><a href="${esc(t.Screenshot)}" target="_blank" class="modal-screenshot">📷 Open Screenshot</a></div>`;
+  }
+
+  return html;
 }
 
 loadTrades();

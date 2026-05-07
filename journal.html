@@ -84,6 +84,43 @@
   .section-title { font-size: 12px; font-weight: 800; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: baseline; }
   .section-count { font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: 0.05em; }
 
+  /* Analytics — collapsible */
+  .analytics-header { cursor: pointer; user-select: none; transition: color 0.1s; }
+  .analytics-header:hover { color: var(--fg); }
+  .analytics-toggle-icon { display: inline-block; transition: transform 0.15s; font-size: 9px; margin-right: 4px; }
+  .analytics-toggle-icon.open { transform: rotate(90deg); }
+  .analytics-tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .analytics-tab { font-size: 11px; font-family: inherit; color: var(--muted); background: none; border: none; padding: 6px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 600; letter-spacing: 0.05em; }
+  .analytics-tab:hover { color: var(--fg); }
+  .analytics-tab.active { color: var(--fg); border-bottom-color: var(--green); }
+
+  /* Edge tab — stats grid */
+  .edge-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 6px; margin-bottom: 14px; }
+  .edge-stat { background: var(--card); border: 1px solid var(--border); border-radius: 5px; padding: 8px 10px; }
+  .edge-stat-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
+  .edge-stat-val { font-size: 17px; font-weight: 800; line-height: 1.2; }
+  .edge-stat-hint { font-size: 9px; color: var(--muted); margin-top: 2px; line-height: 1.3; }
+
+  /* Charts */
+  .chart-block { background: var(--card); border: 1px solid var(--border); border-radius: 5px; padding: 10px 12px; margin-bottom: 12px; }
+  .chart-title { font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 0.1em; margin-bottom: 6px; text-transform: uppercase; }
+  .chart-svg { width: 100%; display: block; }
+
+  /* Factor analysis table */
+  .factor-block { margin-bottom: 14px; }
+  .factor-title { font-size: 10px; font-weight: 800; color: var(--muted); letter-spacing: 0.12em; margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px dashed var(--border); }
+  .factor-table { display: flex; flex-direction: column; gap: 1px; background: var(--border); border-radius: 4px; overflow: hidden; }
+  .factor-row { display: grid; grid-template-columns: 1.5fr 70px 60px 80px 80px 80px; gap: 8px; padding: 5px 10px; background: var(--card); font-size: 11px; align-items: center; }
+  .factor-row.factor-header { background: var(--bg); font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+  .factor-row.low-n { opacity: 0.55; }
+  .factor-row.high-n { box-shadow: inset 3px 0 0 var(--green); }
+  .factor-row .factor-val { font-weight: 700; color: var(--fg); }
+  .factor-row .pos { color: var(--green); font-weight: 700; }
+  .factor-row .neg { color: var(--red); font-weight: 700; }
+  .factor-row .neutral { color: var(--muted); }
+  .factor-low-n-warn { font-size: 8px; color: var(--muted); margin-left: 4px; opacity: 0.8; }
+  .factor-help { font-size: 10px; color: var(--muted); padding: 8px 12px; background: var(--card); border-radius: 4px; margin-bottom: 12px; line-height: 1.5; }
+
   /* Cards */
   .cards { display: flex; flex-direction: column; gap: 8px; }
   .empty { color: var(--muted); text-align: center; padding: 20px; font-size: 12px; font-style: italic; }
@@ -205,6 +242,22 @@
 
 <div id="statsSummary" class="stats-summary"></div>
 
+<!-- ANALYTICS — collapsible section -->
+<div class="section" id="analyticsSection">
+  <div class="section-title analytics-header" onclick="toggleAnalytics()">
+    <span><span class="analytics-toggle-icon" id="analyticsToggleIcon">▶</span>📈 ANALYTICS</span>
+    <span class="section-count" id="analyticsCount"></span>
+  </div>
+  <div id="analyticsBody" style="display:none">
+    <div class="analytics-tabs">
+      <button class="analytics-tab active" data-tab="edge" onclick="setAnalyticsTab('edge')">EDGE</button>
+      <button class="analytics-tab" data-tab="factors" onclick="setAnalyticsTab('factors')">FACTORS</button>
+    </div>
+    <div id="tabEdge" class="analytics-tab-content"></div>
+    <div id="tabFactors" class="analytics-tab-content" style="display:none"></div>
+  </div>
+</div>
+
 <div class="section" id="openSection">
   <div class="section-title">OPEN TRADES <span class="section-count" id="openCount"></span></div>
   <div id="openCards" class="cards"></div>
@@ -233,6 +286,8 @@ const DB_ID = "24933910ce304b65a1f50b137d7392ae";
 let allTrades = [];
 let filters = { mode: "all", asset: "all", skipped: "show" };
 let viewBucket = "all"; // "all" | "open" | "skipped" | "closed"
+let analyticsOpen = localStorage.getItem('tc_analytics_open') === '1';
+let analyticsTab = 'edge'; // 'edge' | 'factors'
 
 function loadCfg() {
   document.getElementById("cfg_worker").value = localStorage.getItem("tc_worker") || "";
@@ -332,6 +387,7 @@ function applyAndRender() {
   renderOpenCards(open);
   renderSkippedSection(skipped);
   renderResults(closed);
+  renderAnalytics(closed);
   applyBucketVisibility();
 }
 
@@ -692,6 +748,305 @@ async function closeTrade(pageId) {
     if (data.message) { msgEl.textContent = data.message; msgEl.style.color = "var(--red)"; }
     else { msgEl.textContent = "✅ Closed!"; msgEl.style.color = "var(--green)"; setTimeout(loadTrades, 1500); }
   } catch(e) { msgEl.textContent = e.message; msgEl.style.color = "var(--red)"; }
+}
+
+// === ANALYTICS — Tier 1 (Edge) + Tier 2 (Factors) ===
+
+function toggleAnalytics() {
+  analyticsOpen = !analyticsOpen;
+  localStorage.setItem('tc_analytics_open', analyticsOpen ? '1' : '0');
+  document.getElementById('analyticsBody').style.display = analyticsOpen ? '' : 'none';
+  document.getElementById('analyticsToggleIcon').classList.toggle('open', analyticsOpen);
+}
+
+function setAnalyticsTab(tab) {
+  analyticsTab = tab;
+  document.querySelectorAll('.analytics-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('tabEdge').style.display = tab === 'edge' ? '' : 'none';
+  document.getElementById('tabFactors').style.display = tab === 'factors' ? '' : 'none';
+}
+
+// Parse Conviction text "Standard (-2)" → "Standard"
+function parseConvictionLevel(c) {
+  if (!c) return null;
+  const m = String(c).match(/^(High|Standard|Low)/);
+  return m ? m[1] : null;
+}
+
+// === Tier 1: EDGE STATS ===
+function computeEdgeStats(closed) {
+  const sorted = closed
+    .filter(t => !isNaN(parseFloat(t["PnL R"])))
+    .sort((a, b) => (a.Date || "").localeCompare(b.Date || ""));
+
+  const stats = {
+    n: sorted.length,
+    wins: 0, losses: 0, be: 0,
+    grossWin: 0, grossLoss: 0,
+    totalR: 0,
+    maxConsecLosses: 0,
+    maxConsecWins: 0,
+    maxDrawdownR: 0,
+    cumulativeRSeries: [],
+    rDistribution: [],
+  };
+
+  let curConsecLosses = 0, curConsecWins = 0;
+  let runningR = 0, runningMax = 0;
+
+  for (const t of sorted) {
+    const r = parseFloat(t["PnL R"]);
+    stats.rDistribution.push(r);
+    if (r > 0) {
+      stats.wins++; stats.grossWin += r;
+      curConsecLosses = 0; curConsecWins++;
+      if (curConsecWins > stats.maxConsecWins) stats.maxConsecWins = curConsecWins;
+    } else if (r < 0) {
+      stats.losses++; stats.grossLoss += Math.abs(r);
+      curConsecWins = 0; curConsecLosses++;
+      if (curConsecLosses > stats.maxConsecLosses) stats.maxConsecLosses = curConsecLosses;
+    } else {
+      stats.be++; curConsecLosses = 0; curConsecWins = 0;
+    }
+    stats.totalR += r;
+    runningR += r;
+    if (runningR > runningMax) runningMax = runningR;
+    const dd = runningMax - runningR;
+    if (dd > stats.maxDrawdownR) stats.maxDrawdownR = dd;
+    stats.cumulativeRSeries.push({ date: t.Date, r: runningR, asset: t.Asset, tradeId: t["Trade ID"], rPerTrade: r });
+  }
+
+  stats.profitFactor = stats.grossLoss > 0 ? stats.grossWin / stats.grossLoss : (stats.grossWin > 0 ? Infinity : 0);
+  stats.expectancy = stats.n ? stats.totalR / stats.n : 0;
+  stats.winRate = stats.n ? (stats.wins / stats.n) * 100 : 0;
+  stats.avgWin = stats.wins ? stats.grossWin / stats.wins : 0;
+  stats.avgLoss = stats.losses ? -stats.grossLoss / stats.losses : 0;
+  return stats;
+}
+
+function renderEquityCurveSVG(series) {
+  if (!series.length) return '<div class="empty">No closed trades — equity curve will appear here</div>';
+  const W = 600, H = 160, padL = 40, padR = 15, padT = 15, padB = 25;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const minR = Math.min(0, ...series.map(s => s.r));
+  const maxR = Math.max(0, ...series.map(s => s.r));
+  const rangeR = (maxR - minR) || 1;
+  const xStep = series.length > 1 ? innerW / (series.length - 1) : 0;
+  const yScale = r => padT + innerH - ((r - minR) / rangeR) * innerH;
+  const xPos = i => padL + i * xStep;
+
+  let path = "";
+  series.forEach((s, i) => {
+    path += (i === 0 ? "M" : "L") + xPos(i).toFixed(1) + " " + yScale(s.r).toFixed(1);
+  });
+
+  const y0 = yScale(0);
+  const lastR = series[series.length - 1].r;
+  const lastColor = lastR >= 0 ? "var(--green)" : "var(--red)";
+
+  // Area path (fill below line down to 0)
+  let areaPath = "M" + xPos(0).toFixed(1) + " " + y0.toFixed(1);
+  series.forEach((s, i) => { areaPath += " L" + xPos(i).toFixed(1) + " " + yScale(s.r).toFixed(1); });
+  areaPath += " L" + xPos(series.length - 1).toFixed(1) + " " + y0.toFixed(1) + " Z";
+
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" preserveAspectRatio="none" style="height:160px">
+    <path d="${areaPath}" fill="${lastColor}" opacity="0.08" />
+    <line x1="${padL}" y1="${y0.toFixed(1)}" x2="${W - padR}" y2="${y0.toFixed(1)}" stroke="var(--border)" stroke-dasharray="3 3" />
+    <text x="${padL - 4}" y="${(y0 + 3).toFixed(1)}" font-size="9" fill="var(--muted)" text-anchor="end">0R</text>
+    <text x="${padL - 4}" y="${(padT + 8).toFixed(1)}" font-size="9" fill="var(--muted)" text-anchor="end">${maxR > 0 ? "+" + maxR.toFixed(1) : maxR.toFixed(1)}</text>
+    <text x="${padL - 4}" y="${(H - padB + 3).toFixed(1)}" font-size="9" fill="var(--muted)" text-anchor="end">${minR.toFixed(1)}</text>
+    <path d="${path}" stroke="${lastColor}" stroke-width="1.8" fill="none" />
+    <circle cx="${xPos(series.length - 1).toFixed(1)}" cy="${yScale(lastR).toFixed(1)}" r="3" fill="${lastColor}" />
+    <text x="${(W - padR - 4).toFixed(1)}" y="${(yScale(lastR) - 6).toFixed(1)}" font-size="11" font-weight="700" fill="${lastColor}" text-anchor="end">${lastR >= 0 ? "+" : ""}${lastR.toFixed(1)}R</text>
+    <text x="${padL.toFixed(1)}" y="${(H - 6).toFixed(1)}" font-size="9" fill="var(--muted)">trade #1</text>
+    <text x="${(W - padR).toFixed(1)}" y="${(H - 6).toFixed(1)}" font-size="9" fill="var(--muted)" text-anchor="end">trade #${series.length}</text>
+  </svg>`;
+}
+
+function renderHistogramSVG(rValues) {
+  if (!rValues.length) return '<div class="empty">No data</div>';
+  const bins = [
+    { label: "<-1R", min: -Infinity, max: -1, color: "var(--red)" },
+    { label: "-1 to 0", min: -1, max: 0, color: "var(--orange)" },
+    { label: "0 to 1", min: 0, max: 1, color: "var(--yellow)" },
+    { label: "1 to 2", min: 1, max: 2, color: "var(--green)" },
+    { label: ">2R", min: 2, max: Infinity, color: "var(--green)" },
+  ];
+  bins.forEach(b => { b.count = rValues.filter(r => r >= b.min && r < b.max).length; });
+  // Treat r exactly = max boundary: include in upper bin already via < max
+  // BE (r=0) goes into "0 to 1" bin, which is fine
+  const maxCount = Math.max(...bins.map(b => b.count), 1);
+  const W = 600, H = 130, padL = 15, padR = 15, padT = 12, padB = 28;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const gap = 8;
+  const barW = (innerW - gap * (bins.length - 1)) / bins.length;
+
+  let bars = "";
+  bins.forEach((b, i) => {
+    const x = padL + i * (barW + gap);
+    const h = b.count ? (b.count / maxCount) * innerH : 0;
+    const y = padT + innerH - h;
+    bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${b.color}" opacity="0.65" />`;
+    if (b.count) bars += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" font-size="11" font-weight="700" fill="var(--fg)" text-anchor="middle">${b.count}</text>`;
+    bars += `<text x="${(x + barW / 2).toFixed(1)}" y="${(H - 8).toFixed(1)}" font-size="9" fill="var(--muted)" text-anchor="middle">${b.label}</text>`;
+  });
+
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" preserveAspectRatio="none" style="height:130px">${bars}</svg>`;
+}
+
+function renderEdgeTab(closed) {
+  const stats = computeEdgeStats(closed);
+  const el = document.getElementById('tabEdge');
+
+  if (!stats.n) {
+    el.innerHTML = '<div class="empty" style="padding:30px">No closed trades yet.<br><span style="font-size:10px">Edge analytics activate at <strong>10+ trades</strong>. Statistical significance requires <strong>30+</strong>.</span></div>';
+    return;
+  }
+
+  const clr = v => v > 0 ? "var(--green)" : v < 0 ? "var(--red)" : "var(--muted)";
+  const pf = stats.profitFactor;
+  const pfColor = pf >= 1.5 ? "var(--green)" : pf >= 1 ? "var(--yellow)" : "var(--red)";
+  const pfDisplay = pf === Infinity ? "∞" : pf.toFixed(2);
+  const pfHint = pf >= 2 ? "Strong" : pf >= 1.5 ? "Good" : pf >= 1 ? "Marginal" : "Negative";
+
+  const expColor = clr(stats.expectancy);
+  const expHint = stats.expectancy > 0.3 ? "Strong" : stats.expectancy > 0 ? "Marginal" : "Negative";
+
+  const sigLabel = stats.n < 10 ? '<span style="color:var(--orange)">⚠ Need 10+ trades</span>' :
+                   stats.n < 30 ? '<span style="color:var(--yellow)">Tentative</span>' :
+                   '<span style="color:var(--green)">Significant</span>';
+
+  let html = '';
+
+  html += `<div class="edge-stats">`;
+  html += `<div class="edge-stat"><div class="edge-stat-label">Closed</div><div class="edge-stat-val">${stats.n}</div><div class="edge-stat-hint">${sigLabel}</div></div>`;
+  html += `<div class="edge-stat"><div class="edge-stat-label">Profit Factor</div><div class="edge-stat-val" style="color:${pfColor}">${pfDisplay}</div><div class="edge-stat-hint">${pfHint}</div></div>`;
+  html += `<div class="edge-stat"><div class="edge-stat-label">Expectancy</div><div class="edge-stat-val" style="color:${expColor}">${stats.expectancy >= 0 ? '+' : ''}${stats.expectancy.toFixed(2)}R</div><div class="edge-stat-hint">${expHint}</div></div>`;
+  html += `<div class="edge-stat"><div class="edge-stat-label">Win Rate</div><div class="edge-stat-val" style="color:${stats.winRate >= 50 ? 'var(--green)' : 'var(--red)'}">${stats.winRate.toFixed(0)}%</div><div class="edge-stat-hint">${stats.wins}W · ${stats.losses}L · ${stats.be}BE</div></div>`;
+  html += `<div class="edge-stat"><div class="edge-stat-label">Avg W / L</div><div class="edge-stat-val" style="font-size:14px"><span style="color:var(--green)">+${stats.avgWin.toFixed(2)}</span> / <span style="color:var(--red)">${stats.avgLoss.toFixed(2)}</span></div><div class="edge-stat-hint">Ratio: ${stats.avgLoss !== 0 ? Math.abs(stats.avgWin / stats.avgLoss).toFixed(2) : '—'}</div></div>`;
+  html += `<div class="edge-stat"><div class="edge-stat-label">Max Drawdown</div><div class="edge-stat-val" style="color:var(--red)">-${stats.maxDrawdownR.toFixed(1)}R</div><div class="edge-stat-hint">Worst peak-to-trough</div></div>`;
+  html += `<div class="edge-stat"><div class="edge-stat-label">Max Consec Losses</div><div class="edge-stat-val">${stats.maxConsecLosses}</div><div class="edge-stat-hint">Stress test</div></div>`;
+  html += `<div class="edge-stat"><div class="edge-stat-label">Total R</div><div class="edge-stat-val" style="color:${clr(stats.totalR)}">${stats.totalR >= 0 ? '+' : ''}${stats.totalR.toFixed(1)}R</div><div class="edge-stat-hint">Cumulative</div></div>`;
+  html += `</div>`;
+
+  // Equity curve
+  html += `<div class="chart-block">`;
+  html += `<div class="chart-title">Equity Curve · cumulative R</div>`;
+  html += renderEquityCurveSVG(stats.cumulativeRSeries);
+  html += `</div>`;
+
+  // R-multiple histogram
+  html += `<div class="chart-block">`;
+  html += `<div class="chart-title">R-Multiple Distribution · ${stats.n} trades</div>`;
+  html += renderHistogramSVG(stats.rDistribution);
+  html += `</div>`;
+
+  el.innerHTML = html;
+}
+
+// === Tier 2: FACTOR ANALYSIS ===
+const factorDefs = [
+  { name: "Conviction", fn: t => parseConvictionLevel(t.Conviction), ordered: ["High", "Standard", "Low"] },
+  { name: "Trade Mode", fn: t => t["Trade Mode"], ordered: ["Continuation", "Reversal", "Wait", "No Trade"] },
+  { name: "Day Regime", fn: t => t["Day Regime"], ordered: ["Trend 3/3 Bull", "Trend 3/3 Bear", "Moderate 2/3 Bull", "Moderate 2/3 Bear", "Trend 3/3", "Moderate 2/3", "Neutral"] },
+  { name: "Trigger TF", fn: t => t["Trigger TF"], ordered: ["1h", "4h", "D", "W", "M"] },
+  { name: "Session", fn: t => t["Session"], ordered: ["Asia", "London", "NY", "Low Liquidity"] },
+  { name: "HTF Confluence", fn: t => t["HTF Confluence"], ordered: ["None", "+1 HTF", "+2 HTF"] },
+  { name: "Phase (MD)", fn: t => t["Phase"], ordered: ["Accumulation", "Expansion", "Distribution", "Reversal", "Transition"] },
+  { name: "Asset", fn: t => t.Asset, ordered: null },
+];
+
+function aggregateByFactor(closed, factorFn) {
+  const buckets = {};
+  for (const t of closed) {
+    const v = factorFn(t);
+    if (!v) continue;
+    if (!buckets[v]) buckets[v] = { count: 0, wins: 0, losses: 0, be: 0, totalR: 0 };
+    buckets[v].count++;
+    const r = parseFloat(t["PnL R"]);
+    if (isNaN(r)) continue;
+    buckets[v].totalR += r;
+    if (r > 0) buckets[v].wins++;
+    else if (r < 0) buckets[v].losses++;
+    else buckets[v].be++;
+  }
+  return buckets;
+}
+
+function renderFactorsTab(closed) {
+  const el = document.getElementById('tabFactors');
+
+  if (!closed.length) {
+    el.innerHTML = '<div class="empty" style="padding:30px">No closed trades yet.<br><span style="font-size:10px">Factor analysis needs <strong>15+ trades per category</strong> for tentative significance, <strong>30+</strong> for confidence.<br>This is the table that will tell you <em>which conditions actually produce edge</em>.</span></div>';
+    return;
+  }
+
+  let html = '<div class="factor-help"><strong>How to read:</strong> Each row = one value of that factor. <strong>Exp</strong> = expectancy R per trade (the bottom line). <strong>WR</strong> = win rate of closed-with-PnL trades. <span style="color:var(--green)">Green</span>=positive edge (Exp > +0.3R). <span style="color:var(--red)">Red</span>=loses money. <span style="opacity:0.55">Greyed</span>=N&lt;5 (insignificant). <span style="color:var(--green)">Green left bar</span>=N≥15 (tentatively significant).</div>';
+
+  for (const factor of factorDefs) {
+    const buckets = aggregateByFactor(closed, factor.fn);
+    let keys = factor.ordered ? factor.ordered.filter(k => buckets[k]) : Object.keys(buckets);
+    // Append any unordered keys not in ordered list
+    if (factor.ordered) {
+      const extra = Object.keys(buckets).filter(k => !factor.ordered.includes(k));
+      keys = keys.concat(extra);
+    } else {
+      keys.sort((a, b) => buckets[b].count - buckets[a].count);
+    }
+    if (keys.length === 0) continue;
+
+    html += `<div class="factor-block">`;
+    html += `<div class="factor-title">${factor.name.toUpperCase()}</div>`;
+    html += `<div class="factor-table">`;
+    html += `<div class="factor-row factor-header"><span>Value</span><span>N</span><span>WR</span><span>Avg R</span><span>Exp / Trade</span><span>Total R</span></div>`;
+
+    for (const key of keys) {
+      const b = buckets[key];
+      const closedN = b.wins + b.losses + b.be;
+      const wrCalcN = b.wins + b.losses; // exclude BE from win rate denominator
+      const wr = wrCalcN ? Math.round(b.wins / wrCalcN * 100) : null;
+      const avgR = closedN ? b.totalR / closedN : 0;
+      const exp = b.count ? b.totalR / b.count : 0;
+
+      let sigCls = '';
+      if (b.count < 5) sigCls = 'low-n';
+      else if (b.count >= 15) sigCls = 'high-n';
+
+      let expCls = 'neutral';
+      if (b.count >= 5) {
+        if (exp > 0.3) expCls = 'pos';
+        else if (exp < -0.05) expCls = 'neg';
+      }
+
+      const lowNwarn = b.count < 5 ? '<span class="factor-low-n-warn">low N</span>' : '';
+
+      html += `<div class="factor-row ${sigCls}">`;
+      html += `<span class="factor-val">${esc(key)}</span>`;
+      html += `<span>${b.count}${lowNwarn}</span>`;
+      html += `<span>${wr !== null ? wr + '%' : '—'}</span>`;
+      html += `<span>${closedN ? (avgR >= 0 ? '+' : '') + avgR.toFixed(2) + 'R' : '—'}</span>`;
+      html += `<span class="${expCls}">${b.count ? (exp >= 0 ? '+' : '') + exp.toFixed(2) + 'R' : '—'}</span>`;
+      html += `<span style="color:${b.totalR >= 0 ? 'var(--green)' : 'var(--red)'}">${(b.totalR >= 0 ? '+' : '') + b.totalR.toFixed(1) + 'R'}</span>`;
+      html += `</div>`;
+    }
+
+    html += `</div></div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+function renderAnalytics(closed) {
+  // Restore collapsed/expanded state on every render
+  document.getElementById('analyticsBody').style.display = analyticsOpen ? '' : 'none';
+  document.getElementById('analyticsToggleIcon').classList.toggle('open', analyticsOpen);
+  document.getElementById('analyticsCount').textContent = closed.length ? `${closed.length} closed` : 'no data yet';
+
+  // Always render both tabs (they're cheap), only one is visible
+  renderEdgeTab(closed);
+  renderFactorsTab(closed);
 }
 
 // === MODAL — Trade Detail View ===
